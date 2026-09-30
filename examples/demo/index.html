@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>H/Ai demo page</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; }
+      .hidden { display: none; }
+      form { display: grid; gap: 8px; margin-top: 24px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>H/Ai demo</h1>
+      <nav><a href="#about">About</a></nav>
+    </header>
+    <main>
+      <p>Clicks: <span id="count">0</span></p>
+      <button id="inc" type="button">Increment</button>
+      <form id="signup">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" placeholder="you@example.com" />
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" />
+        <label><input id="terms" type="checkbox" /> I agree to the terms</label>
+        <button type="submit">Sign up</button>
+      </form>
+      <p id="result" role="status"></p>
+      <p class="hidden">This text is hidden and must not appear in snapshots.</p>
+      <section id="about" aria-label="About"><h2>About</h2><p>A fixture page for hai-browser.</p></section>
+    </main>
+    <script>
+      let count = 0;
+      document.getElementById('inc').addEventListener('click', (e) => {
+        count++;
+        document.getElementById('count').textContent = String(count);
+        console.log('increment', count, 'trusted:', e.isTrusted);
+      });
+      document.getElementById('signup').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value;
+        document.getElementById('result').textContent = 'Signed up as ' + email;
+        console.warn('signup submitted', email);
+      });
+    </script>
+  </body>
+</html>

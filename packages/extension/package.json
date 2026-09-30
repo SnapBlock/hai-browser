@@ -1,0 +1,46 @@
+{
+  "name": "hai-browser",
+  "displayName": "H/Ai Browser",
+  "description": "Share VS Code's integrated browser with Claude Code and other MCP agents.",
+  "version": "0.0.1",
+  "publisher": "snapblock",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/SnapBlock/hai-browser" },
+  "engines": { "vscode": "^1.119.0" },
+  "categories": ["AI", "Debuggers", "Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "extensionDependencies": ["ms-vscode.js-debug"],
+  "contributes": {
+    "commands": [
+      { "command": "haiBrowser.share", "title": "Share Browser Tab with Agent", "category": "H/Ai" },
+      { "command": "haiBrowser.stopSharing", "title": "Stop Sharing Browser Tab", "category": "H/Ai" },
+      { "command": "haiBrowser.showConnectionInfo", "title": "Show MCP Setup", "category": "H/Ai" }
+    ],
+    "configuration": {
+      "title": "H/Ai Browser",
+      "properties": {
+        "haiBrowser.allowEvaluate": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Allow agents to run arbitrary JavaScript in the shared page (`browser_evaluate`)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "echo 'no unit tests yet'",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@hai-browser/protocol": "workspace:*",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "~1.118.0",
+    "@types/ws": "^8.18.2",
+    "@vscode/vsce": "^4.0.0"
+  }
+}
