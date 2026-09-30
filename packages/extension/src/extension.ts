@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { AgentMethods, AgentRequest } from '@hai-browser/protocol';
+import type { AgentMethods, AgentRequest, PickedElement } from '@hai-browser/protocol';
 import { AgentServer } from './agentServer';
 import { BrowserBridge } from './browser';
 
@@ -24,15 +24,38 @@ export async function activate(context: vscode.ExtensionContext) {
     status.command = shared ? 'haiBrowser.stopSharing' : 'haiBrowser.share';
     status.backgroundColor = shared ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
   };
-  renderStatus(false);
+  const pickItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  pickItem.text = '$(inspect) Pick';
+  pickItem.tooltip = 'Pick an element in the shared browser tab and open its source';
+  pickItem.command = 'haiBrowser.pickElement';
+  const renderAll = (shared: boolean) => {
+    renderStatus(shared);
+    if (shared) pickItem.show();
+    else pickItem.hide();
+  };
+  renderAll(false);
   status.show();
+
+  const pickElement = async () => {
+    if (bridge.isPicking) return bridge.cancelPick();
+    try {
+      if (!bridge.shared) await bridge.share();
+      const hint = vscode.window.setStatusBarMessage('$(inspect) H/Ai: click an element in the browser (Esc cancels)');
+      await bridge.pick().finally(() => hint.dispose());
+    } catch (e) {
+      vscode.window.showWarningMessage(`H/Ai: ${e instanceof Error ? e.message : e}`);
+    }
+  };
 
   context.subscriptions.push(
     bridge,
     log,
     status,
     { dispose: () => server.dispose() },
-    bridge.onDidChangeShared(renderStatus),
+    pickItem,
+    bridge.onDidChangeShared(renderAll),
+    bridge.onDidPick(el => openSource(el, log)),
+    vscode.commands.registerCommand('haiBrowser.pickElement', pickElement),
     vscode.workspace.onDidChangeWorkspaceFolders(() => server.updateWorkspaceFolders(folders())),
     vscode.commands.registerCommand('haiBrowser.share', async () => {
       try {
@@ -54,6 +77,24 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {}
+
+async function openSource(el: PickedElement, log: vscode.LogOutputChannel) {
+  const src = el.source;
+  log.info(`picked <${el.tag}> ${src ? `${src.path}:${src.line}:${src.column}` : '(no source tag)'}`);
+  if (!src?.file) {
+    const why = src
+      ? `could not find ${src.path} in this workspace`
+      : 'it has no source location. Add the hai-browser-vite plugin to your dev server';
+    vscode.window.showInformationMessage(`H/Ai: picked <${el.tag}>, but ${why}. Agents can still read it with browser_get_selection.`);
+    return;
+  }
+  const pos = new vscode.Position(Math.max(0, src.line - 1), Math.max(0, src.column - 1));
+  await vscode.window.showTextDocument(vscode.Uri.file(src.file), {
+    viewColumn: vscode.ViewColumn.Beside,
+    selection: new vscode.Range(pos, pos),
+    preview: true,
+  });
+}
 
 async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unknown> {
   const p = req.params as any;
@@ -83,6 +124,14 @@ async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unkno
         throw new Error('browser_evaluate is disabled. The user can enable the "haiBrowser.allowEvaluate" setting.');
       }
       return { value: await bridge.evaluate(requireString(p.expression, 'expression')) };
+    case 'pick': {
+      const timeoutMs = typeof p.timeoutMs === 'number' ? p.timeoutMs : undefined;
+      const pending = bridge.pick(timeoutMs);
+      void vscode.window.showInformationMessage('H/Ai: an agent asked you to pick an element in the browser. Click it, or press Esc to cancel.');
+      return { selection: await pending };
+    }
+    case 'selection':
+      return { selection: bridge.lastSelection };
     default:
       throw new Error(`Unknown method: ${req.method}`);
   }

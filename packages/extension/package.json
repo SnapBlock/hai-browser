@@ -14,6 +14,7 @@
   "contributes": {
     "commands": [
       { "command": "haiBrowser.share", "title": "Share Browser Tab with Agent", "category": "H/Ai" },
+      { "command": "haiBrowser.pickElement", "title": "Pick Element and Open Source", "category": "H/Ai", "icon": "$(inspect)" },
       { "command": "haiBrowser.stopSharing", "title": "Stop Sharing Browser Tab", "category": "H/Ai" },
       { "command": "haiBrowser.showConnectionInfo", "title": "Show MCP Setup", "category": "H/Ai" }
     ],

@@ -175,3 +175,163 @@ export function locateRef(ref: string, focus: boolean, clear: boolean): ElementB
 export function invoke(fn: (...args: any[]) => unknown, ...args: unknown[]): string {
   return `(${fn.toString()})(${args.map(a => JSON.stringify(a)).join(',')})`;
 }
+
+export interface PickState {
+  state: 'picking' | 'picked' | 'cancelled' | 'idle';
+  picked?: PageElementInfo;
+}
+
+export interface PageElementInfo {
+  ref: string;
+  tag: string;
+  selector: string;
+  text: string;
+  html: string;
+  styles: Record<string, string>;
+  rect: { x: number; y: number; width: number; height: number };
+  url: string;
+  src?: string;
+  srcRoot?: string;
+}
+
+declare global {
+  interface Window {
+    __haiPick?: { state: PickState['state']; picked?: PageElementInfo; stop: () => void };
+  }
+}
+
+/** Hover-highlight elements; the next click is captured (not delivered to the page). Escape cancels. */
+export function startPicker(): boolean {
+  window.__haiPick?.stop();
+  const hai = (window.__hai ??= { next: 1, ids: new WeakMap(), refs: new Map() });
+  const box = document.createElement('div');
+  const label = document.createElement('div');
+  box.style.cssText =
+    'position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #7c3aed;background:rgba(124,58,237,.12);' +
+    'border-radius:2px;transition:all 40ms;display:none';
+  label.style.cssText =
+    'position:fixed;z-index:2147483647;pointer-events:none;background:#7c3aed;color:#fff;font:12px/1.4 ui-monospace,monospace;' +
+    'padding:2px 6px;border-radius:3px;white-space:nowrap;display:none';
+  document.documentElement.append(box, label);
+
+  let current: Element | null = null;
+  const srcOf = (el: Element) => el.closest('[data-hai-src]')?.getAttribute('data-hai-src') ?? undefined;
+  const show = (el: Element) => {
+    current = el;
+    const r = el.getBoundingClientRect();
+    Object.assign(box.style, { display: 'block', left: r.x + 'px', top: r.y + 'px', width: r.width + 'px', height: r.height + 'px' });
+    const src = srcOf(el);
+    label.textContent = el.tagName.toLowerCase() + (src ? '  ' + src.split('/').pop() : '');
+    Object.assign(label.style, { display: 'block', left: Math.max(0, r.x) + 'px', top: Math.max(0, r.y - 22) + 'px' });
+  };
+  const selectorOf = (el: Element) => {
+    const parts: string[] = [];
+    for (let e: Element | null = el; e && e !== document.documentElement && parts.length < 5; e = e.parentElement) {
+      if (e.id) {
+        parts.unshift('#' + CSS.escape(e.id));
+        break;
+      }
+      let part = e.tagName.toLowerCase();
+      const parent = e.parentElement;
+      if (parent) {
+        const same = Array.from(parent.children).filter(c => c.tagName === e!.tagName);
+        if (same.length > 1) part += `:nth-of-type(${same.indexOf(e) + 1})`;
+      }
+      parts.unshift(part);
+    }
+    return parts.join(' > ');
+  };
+  const describe = (el: Element): PageElementInfo => {
+    let ref = hai.ids.get(el);
+    if (!ref) {
+      ref = 'e' + hai.next++;
+      hai.ids.set(el, ref);
+    }
+    hai.refs.set(ref, new WeakRef(el));
+    const cs = getComputedStyle(el);
+    const styles: Record<string, string> = {};
+    for (const p of ['display', 'position', 'color', 'background-color', 'font-family', 'font-size', 'font-weight',
+      'line-height', 'padding', 'margin', 'border', 'border-radius', 'width', 'height', 'gap']) {
+      styles[p] = cs.getPropertyValue(p);
+    }
+    const clone = el.cloneNode(true) as Element;
+    for (const input of Array.from(clone.querySelectorAll('input[type=password],input[autocomplete^=cc-]'))) {
+      input.setAttribute('value', '<redacted>');
+    }
+    const html = clone.outerHTML;
+    const r = el.getBoundingClientRect();
+    const text = ((el as HTMLElement).innerText ?? el.textContent ?? '').replace(/\s+/g, ' ').trim();
+    return {
+      ref,
+      tag: el.tagName.toLowerCase(),
+      selector: selectorOf(el),
+      text: text.length > 300 ? text.slice(0, 299) + '…' : text,
+      html: html.length > 3000 ? html.slice(0, 2999) + '…' : html,
+      styles,
+      rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      url: location.href,
+      src: srcOf(el),
+      srcRoot: document.querySelector('meta[name="hai-browser-root"]')?.getAttribute('content') ?? undefined,
+    };
+  };
+
+  const swallow = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+  };
+  const onMove = (e: MouseEvent) => {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el && el !== box && el !== label && el !== current) show(el);
+  };
+  const onClick = (e: MouseEvent) => {
+    swallow(e);
+    const el = document.elementFromPoint(e.clientX, e.clientY) ?? current;
+    if (!el) return;
+    state.picked = describe(el);
+    state.state = 'picked';
+    stop();
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    swallow(e);
+    state.state = 'cancelled';
+    stop();
+  };
+  const listeners: [string, EventListener][] = [
+    ['mousemove', onMove as EventListener],
+    ['click', onClick as EventListener],
+    ['mousedown', swallow],
+    ['mouseup', swallow],
+    ['pointerdown', swallow],
+    ['pointerup', swallow],
+    ['keydown', onKey as EventListener],
+  ];
+  const stop = () => {
+    for (const [type, fn] of listeners) window.removeEventListener(type, fn, true);
+    box.remove();
+    label.remove();
+    document.documentElement.style.cursor = prevCursor;
+    if (state.state === 'picking') state.state = 'cancelled';
+  };
+  const state: NonNullable<Window['__haiPick']> = { state: 'picking', stop };
+  const prevCursor = document.documentElement.style.cursor;
+  document.documentElement.style.cursor = 'crosshair';
+  for (const [type, fn] of listeners) window.addEventListener(type, fn, true);
+  window.__haiPick = state;
+  return true;
+}
+
+export function pollPicker(): PickState {
+  const p = window.__haiPick;
+  if (!p) return { state: 'idle' };
+  if (p.state === 'picking') return { state: 'picking' };
+  window.__haiPick = undefined;
+  return { state: p.state, picked: p.picked };
+}
+
+export function stopPicker(): boolean {
+  window.__haiPick?.stop();
+  window.__haiPick = undefined;
+  return true;
+}

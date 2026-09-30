@@ -1,0 +1,30 @@
+{
+  "name": "hai-browser-vite",
+  "version": "0.0.1",
+  "description": "Dev-only Vite plugin that tags JSX elements with their source file and line so H/Ai can jump from the page to the code.",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/SnapBlock/hai-browser" },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/index.js --external:@babel/parser --external:magic-string && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "vite": ">=5"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.9",
+    "magic-string": "^0.30.21"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  }
+}
