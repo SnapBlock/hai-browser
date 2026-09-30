@@ -2,6 +2,7 @@ import { parse, type ParserPlugin } from '@babel/parser';
 import MagicString from 'magic-string';
 
 export const SRC_ATTR = 'data-hai-src';
+export const ROOT_ATTR = 'data-hai-root';
 
 const JSX_FILE = /\.[jt]sx$/;
 
@@ -17,7 +18,8 @@ interface Node {
  * Add `data-hai-src="file:line:column"` to every intrinsic JSX element (`<div>`, `<button>`, ...).
  * Components are skipped because they may not forward unknown props to the DOM.
  */
-export function tagJsxSource(code: string, id: string, relativePath: string) {
+/** `root`, if given, is added to the `<html>` element so paths can be resolved without a meta tag. */
+export function tagJsxSource(code: string, id: string, relativePath: string, root?: string) {
   const file = id.split('?', 1)[0]!;
   if (!JSX_FILE.test(file) || file.includes('/node_modules/') || !code.includes('<')) return null;
 
@@ -45,7 +47,9 @@ export function tagJsxSource(code: string, id: string, relativePath: string) {
     const attrs = el.attributes as Node[];
     if (attrs.some(a => a.type === 'JSXAttribute' && (a.name as Node).name === SRC_ATTR)) return;
     const { line, column } = el.loc!.start;
-    s.appendLeft(name.end!, ` ${SRC_ATTR}="${path}:${line}:${column + 1}"`);
+    let attr = ` ${SRC_ATTR}="${path}:${line}:${column + 1}"`;
+    if (root && name.name === 'html') attr += ` ${ROOT_ATTR}="${root.replace(/\\/g, '/').replace(/"/g, '&quot;')}"`;
+    s.appendLeft(name.end!, attr);
   };
 
   visit(ast.program);
