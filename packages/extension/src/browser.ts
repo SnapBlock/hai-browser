@@ -1,19 +1,34 @@
+import { isAbsolute, join } from 'node:path';
 import * as vscode from 'vscode';
-import type {
-  ActionResult,
-  ConsoleEntry,
-  ConsoleResult,
-  ScreenshotResult,
-  SnapshotResult,
-  StatusResult,
+import {
+  parseSourceTag,
+  type ActionResult,
+  type ConsoleEntry,
+  type ConsoleResult,
+  type PickedElement,
+  type ScreenshotResult,
+  type SnapshotResult,
+  type SourceLocation,
+  type StatusResult,
 } from '@hai-browser/protocol';
 import { CdpClient } from './cdp';
-import { invoke, locateRef, snapshotPage, type ElementBox } from './pageScripts';
+import {
+  invoke,
+  locateRef,
+  pollPicker,
+  snapshotPage,
+  startPicker,
+  stopPicker,
+  type ElementBox,
+  type PageElementInfo,
+  type PickState,
+} from './pageScripts';
 
 const SESSION_NAME = 'H/Ai (shared browser)';
 const PAGE_SESSION_TYPE = 'pwa-editor-browser';
 const CONSOLE_CAPACITY = 500;
 const SNAPSHOT_MAX_LINES = 1500;
+const PICK_TIMEOUT_MS = 120_000;
 
 const debugOptions: vscode.DebugSessionOptions = {
   suppressDebugToolbar: true,
@@ -47,10 +62,16 @@ export class BrowserBridge implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly changeEmitter = new vscode.EventEmitter<boolean>();
   readonly onDidChangeShared = this.changeEmitter.event;
+  private selection?: PickedElement;
+  private picking?: Promise<PickedElement | undefined>;
+  private readonly pickEmitter = new vscode.EventEmitter<PickedElement>();
+  /** Fires whenever the user picks an element, whether they or an agent started the picker. */
+  readonly onDidPick = this.pickEmitter.event;
 
   constructor() {
     this.disposables.push(
       this.changeEmitter,
+      this.pickEmitter,
       vscode.debug.onDidTerminateDebugSession(s => {
         if (s === this.pageSession || s === this.pageSession?.parentSession) this.reset();
       }),
@@ -160,6 +181,27 @@ export class BrowserBridge implements vscode.Disposable {
     return this.evaluateWithRetry<T>(expression);
   }
 
+  get lastSelection(): PickedElement | undefined {
+    return this.selection;
+  }
+
+  get isPicking() {
+    return !!this.picking;
+  }
+
+  /** Let the user click an element in the shared tab. Resolves undefined on Escape, navigation or timeout. */
+  pick(timeoutMs = PICK_TIMEOUT_MS): Promise<PickedElement | undefined> {
+    this.requireCdp();
+    this.picking ??= this.runPicker(timeoutMs).finally(() => {
+      this.picking = undefined;
+    });
+    return this.picking;
+  }
+
+  async cancelPick() {
+    if (this.shared) await this.evaluateOnce(invoke(stopPicker)).catch(() => {});
+  }
+
   async stop() {
     const parent = this.pageSession?.parentSession ?? this.pageSession;
     this.reset();
@@ -243,6 +285,28 @@ export class BrowserBridge implements vscode.Disposable {
       events: ['Runtime.consoleAPICalled', 'Runtime.exceptionThrown', 'Log.entryAdded'],
     });
     await cdp.send('Log.enable').catch(() => {});
+  }
+
+  private async runPicker(timeoutMs: number): Promise<PickedElement | undefined> {
+    await this.bringToFront(this.requireCdp());
+    await this.evaluate(invoke(startPicker));
+    const deadline = Date.now() + timeoutMs;
+    try {
+      while (this.shared && Date.now() < deadline) {
+        await delay(150);
+        // Evaluation fails briefly while the page navigates; the next poll then reports "idle".
+        const s = await this.evaluateOnce<PickState>(invoke(pollPicker)).catch(() => undefined);
+        if (!s || s.state === 'picking') continue;
+        if (s.state !== 'picked' || !s.picked) return undefined;
+        const picked = await toPickedElement(s.picked);
+        this.selection = picked;
+        this.pickEmitter.fire(picked);
+        return picked;
+      }
+      return undefined;
+    } finally {
+      await this.cancelPick();
+    }
   }
 
   private async bringToFront(cdp: CdpClient) {
@@ -331,6 +395,31 @@ function waitForPageSession(timeoutMs: number): Promise<vscode.DebugSession> {
       }
     });
   });
+}
+
+async function toPickedElement(info: PageElementInfo): Promise<PickedElement> {
+  const { src, srcRoot, ...rest } = info;
+  const source = src ? await resolveSource(src, srcRoot) : undefined;
+  return { ...rest, source, pickedAt: Date.now() };
+}
+
+/** Map a `data-hai-src` path to a file on disk: absolute, dev-server root, workspace folders, then a search. */
+async function resolveSource(src: string, srcRoot?: string): Promise<SourceLocation | undefined> {
+  const loc = parseSourceTag(src);
+  if (!loc) return undefined;
+  const candidates = isAbsolute(loc.path) ? [loc.path] : [];
+  if (srcRoot) candidates.push(join(srcRoot, loc.path));
+  for (const folder of vscode.workspace.workspaceFolders ?? []) candidates.push(join(folder.uri.fsPath, loc.path));
+  for (const file of candidates) {
+    const exists = await vscode.workspace.fs.stat(vscode.Uri.file(file)).then(
+      () => true,
+      () => false,
+    );
+    if (exists) return { ...loc, file };
+  }
+  if (isAbsolute(loc.path)) return loc;
+  const [found] = await vscode.workspace.findFiles(`**/${loc.path}`, '**/node_modules/**', 1);
+  return found ? { ...loc, file: found.fsPath } : loc;
 }
 
 function formatRemoteObject(o: any): string {

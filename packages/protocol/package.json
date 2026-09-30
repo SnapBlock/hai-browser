@@ -8,6 +8,6 @@
   "scripts": {
     "build": "echo 'protocol is bundled into its consumers'",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "echo 'no tests'"
+    "test": "vitest run"
   }
 }

@@ -146,4 +146,48 @@ server.registerTool(
   ({ expression }) => run(async () => text(await conn.call('evaluate', { expression })))(),
 );
 
+server.registerTool(
+  'browser_get_selection',
+  {
+    description:
+      'Get the element the user picked in the shared tab with "H/Ai: Pick Element": its source file:line (when the app uses the hai-browser-vite plugin), selector, text, HTML, key computed styles, a ref for browser_click/browser_type/browser_screenshot, and a screenshot. ' +
+      `Use it when the user says "this"/"that element". Set wait=true to ask the user to pick one now (blocks until they click or press Esc). ${UNTRUSTED}`,
+    inputSchema: {
+      wait: z.boolean().optional().describe('Start the picker and wait for the user to click an element'),
+      timeoutSeconds: z.number().optional().describe('How long to wait when wait=true (default 120)'),
+    },
+  },
+  ({ wait, timeoutSeconds }) =>
+    run(async () => {
+      const { selection: el } = wait
+        ? await conn.call('pick', { timeoutMs: timeoutSeconds ? timeoutSeconds * 1000 : undefined })
+        : await conn.call('selection', {});
+      if (!el) {
+        return text(
+          wait
+            ? 'The user did not pick an element (cancelled, navigated away, or timed out).'
+            : 'Nothing picked yet. Ask the user to run "H/Ai: Pick Element" (status bar "Pick"), or call again with wait=true.',
+        );
+      }
+      const src = el.source;
+      const styles = Object.entries(el.styles)
+        .filter(([, v]) => v && v !== 'none' && v !== 'normal' && v !== 'auto')
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('; ');
+      const summary = [
+        `Picked <${el.tag}>${el.text ? ` "${el.text}"` : ''}  [ref=${el.ref}]`,
+        `Source: ${src ? `${src.file ?? src.path}:${src.line}:${src.column}` : 'unknown (add the hai-browser-vite plugin to the dev server)'}`,
+        `Page: ${el.url}`,
+        `Selector: ${el.selector}`,
+        `Box: ${Math.round(el.rect.width)}x${Math.round(el.rect.height)} at (${Math.round(el.rect.x)}, ${Math.round(el.rect.y)})`,
+        `Styles: ${styles}`,
+        `HTML:\n${el.html}`,
+      ].join('\n');
+      const result = text(summary);
+      const shot = await conn.call('screenshot', { ref: el.ref }).catch(() => undefined);
+      if (shot) result.content.push({ type: 'image', data: shot.data, mimeType: shot.mimeType });
+      return result;
+    })(),
+);
+
 await server.connect(new StdioServerTransport());
