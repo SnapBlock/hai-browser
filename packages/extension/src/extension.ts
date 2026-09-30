@@ -126,9 +126,13 @@ async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unkno
       return { value: await bridge.evaluate(requireString(p.expression, 'expression')) };
     case 'pick': {
       const timeoutMs = typeof p.timeoutMs === 'number' ? p.timeoutMs : undefined;
-      const pending = bridge.pick(timeoutMs);
-      void vscode.window.showInformationMessage('H/Ai: an agent asked you to pick an element in the browser. Click it, or press Esc to cancel.');
-      return { selection: await pending };
+      // A notification toast would pause the integrated browser until dismissed, so hint in the status bar.
+      const hint = vscode.window.setStatusBarMessage('$(inspect) H/Ai: an agent asked you to pick an element in the browser (Esc cancels)');
+      try {
+        return { selection: await bridge.pick(timeoutMs) };
+      } finally {
+        hint.dispose();
+      }
     }
     case 'selection':
       return { selection: bridge.lastSelection };
