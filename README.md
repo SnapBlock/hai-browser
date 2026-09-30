@@ -80,17 +80,30 @@ Agents read it with `browser_get_selection`, or call it with `wait: true` to ask
 | Tool | What it does |
 |---|---|
 | `browser_status` | Whether a tab is shared, plus URL and title |
-| `browser_open` | Open a URL in the shared tab (opens and shares a new tab if none) |
+| `browser_open` | Open a URL in the shared tab. With none shared, reuses an open tab already showing that URL, else opens a new one |
 | `browser_request_share` | Ask the user to pick one of their open tabs to share |
 | `browser_navigate` | Go to a URL, or back / forward / reload |
 | `browser_snapshot` | Accessibility-style outline with `[ref=eN]` handles |
-| `browser_click` | Click an element by ref (trusted mouse input) |
+| `browser_click` | Click by ref or `x`/`y` (trusted mouse input); right/middle button, double click, modifier keys |
+| `browser_hover` | Move the mouse over a ref or point |
+| `browser_scroll` | Mouse-wheel scroll at a ref, point or the viewport centre, or scroll a ref into view |
+| `browser_drag` | Press, move and release between two refs/points (sliders, sortable lists) |
 | `browser_type` | Type into an element by ref, optionally clear and submit |
-| `browser_press_key` | Press a key (`Enter`, `Escape`, `ArrowDown`, `a`, …) |
-| `browser_screenshot` | Viewport, full page, or one element |
+| `browser_press_key` | Press a key or chord (`Enter`, `ArrowDown`, `Control+A`, `Shift+Tab`, …) |
+| `browser_select_option` | Pick `<select>` options by value or label |
+| `browser_upload_file` | Set a file input's files (paths must be inside the workspace) |
+| `browser_handle_dialog` | Accept or dismiss an `alert` / `confirm` / `prompt` |
+| `browser_wait_for` | Wait for text to appear or disappear, or for some seconds |
+| `browser_screenshot` | Viewport (in CSS pixels, so `x`/`y` work with click), full page, or one element. `annotate: true` labels every ref on the image |
 | `browser_console` | Console messages and uncaught errors, incrementally via `since` |
+| `browser_network` | Requests with method, status, type, duration and size, incrementally via `since` |
+| `browser_tabs`, `browser_tab_new`, `browser_tab_select`, `browser_tab_close` | Work with several shared tabs; actions go to the active one |
 | `browser_evaluate` | Run JavaScript in the page. **Off by default**; enable `haiBrowser.allowEvaluate` |
-| `browser_get_selection` | The element you picked: source `file:line:col`, selector, text, HTML, key styles, a ref, and a screenshot. `wait: true` asks you to pick one now |
+| `browser_get_selection` | The element you picked: source `file:line:col`, selector, text, HTML, key styles, a ref, and a screenshot. `wait: true` asks you to pick one now (waits up to 5 minutes) |
+
+Every action (`click`, `hover`, `scroll`, `drag`, `type`, `press_key`, `select_option`, `upload_file`, `handle_dialog`, `wait_for`) returns the page snapshot afterwards, like a computer-use agent seeing the screen after each step. Pass `screenshot: true` to also get an image, or `snapshot: false` to skip the outline. If an action opens a JavaScript dialog, the result says so and other tools refuse to run until `browser_handle_dialog` handles it.
+
+Tabs are the ones shared with agents (opened by `browser_open`/`browser_tab_new`, or shared by you). VS Code's browser-tab API is still proposed, so agents can't see or switch to your other tabs until you share them.
 
 ## Security
 
@@ -108,6 +121,7 @@ python3 -m http.server 8765 -d examples/demo   # demo page
 pnpm smoke                                     # drives the demo through the MCP server (needs VS Code + extension running)
 
 pnpm --filter example-vite-react dev           # React demo tagged by hai-browser-vite, on :5173
+node packages/mcp/scripts/computer-smoke.mjs http://127.0.0.1:8765/ /abs/path/in/workspace.txt   # hover, drag, dialogs, uploads, tabs…
 pnpm --filter hai-browser-mcp smoke:pick       # agent asks for a pick, checks it maps to src/PlanCard.tsx
 
 pnpm --filter example-next-app dev             # Next.js demo (Turbopack) on :3000; or dev:webpack (webpack, :3001), one at a time
