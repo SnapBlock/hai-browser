@@ -8,7 +8,10 @@ const url = process.argv[2] ?? 'http://127.0.0.1:8765/';
 const client = new Client({ name: 'hai-smoke', version: '0.0.0' });
 await client.connect(new StdioClientTransport({ command: 'node', args: [new URL('../dist/index.js', import.meta.url).pathname] }));
 
+// HAI_SMOKE_DELAY=<ms> pauses between steps so a human can watch.
+const pause = Number(process.env.HAI_SMOKE_DELAY ?? 0);
 const call = async (name, args = {}) => {
+  if (pause) await new Promise(r => setTimeout(r, pause));
   const res = await client.callTool({ name, arguments: args });
   const out = res.content.map(c => (c.type === 'text' ? c.text : `[${c.type} ${c.mimeType} ${c.data.length} b64 chars]`)).join('\n');
   console.log(`\n=== ${name} ${JSON.stringify(args)}${res.isError ? ' (ERROR)' : ''}\n${out}`);
