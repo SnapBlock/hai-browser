@@ -21,7 +21,10 @@
       }
     ],
     "allowJs": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "customConditions": [
+      "source"
+    ]
   },
   "include": [
     "next-env.d.ts",
