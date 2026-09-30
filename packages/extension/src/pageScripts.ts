@@ -271,7 +271,10 @@ export function startPicker(): boolean {
       rect: { x: r.x, y: r.y, width: r.width, height: r.height },
       url: location.href,
       src: srcOf(el),
-      srcRoot: document.querySelector('meta[name="hai-browser-root"]')?.getAttribute('content') ?? undefined,
+      srcRoot:
+        document.querySelector('meta[name="hai-browser-root"]')?.getAttribute('content') ??
+        document.documentElement.getAttribute('data-hai-root') ??
+        undefined,
     };
   };
 

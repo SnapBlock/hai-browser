@@ -2,7 +2,7 @@ import { relative } from 'node:path';
 import type { Plugin } from 'vite';
 import { tagJsxSource } from './transform.js';
 
-export { SRC_ATTR, tagJsxSource } from './transform.js';
+export { ROOT_ATTR, SRC_ATTR, tagJsxSource } from './transform.js';
 
 /** Meta tag the H/Ai extension reads to resolve `data-hai-src` paths back to files on disk. */
 export const ROOT_META = 'hai-browser-root';

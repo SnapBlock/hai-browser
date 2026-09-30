@@ -46,3 +46,13 @@ describe('tagJsxSource', () => {
     expect(res?.map.mappings).toBeTruthy();
   });
 });
+
+describe('root attribute', () => {
+  it('adds data-hai-root to <html> only when a root is given', () => {
+    const code = 'export const L = () => <html lang="en"><body /></html>;';
+    const withRoot = tagJsxSource(code, '/p/app/layout.tsx', 'app/layout.tsx', 'C:\\proj')!.code;
+    expect(withRoot).toContain('<html data-hai-src="app/layout.tsx:1:24" data-hai-root="C:/proj" lang="en">');
+    expect(withRoot).toContain('<body data-hai-src="app/layout.tsx:1:40" />');
+    expect(tagJsxSource(code, '/p/app/layout.tsx', 'app/layout.tsx')!.code).not.toContain('data-hai-root');
+  });
+});

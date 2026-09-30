@@ -4,7 +4,7 @@ Share VS Code's integrated browser with **Claude Code** (or any MCP agent). You 
 
 Point at an element and H/Ai opens the line of code that rendered it, and the agent gets the same element (source location, HTML, styles, screenshot), so *"make this button match the header"* just works.
 
-> Status: **prototype** (phases 0–1). See [docs/plan.md](docs/plan.md).
+> Status: **prototype** (phases 0–2). See [docs/plan.md](docs/plan.md).
 
 ## How it works
 
@@ -46,7 +46,9 @@ pnpm build
 
 ## Jump from the page to the code
 
-Add the dev-only Vite plugin (React/JSX; production builds are untouched):
+Add the dev-only plugin for your framework (React/JSX; production builds are untouched).
+
+**Vite**
 
 ```ts
 // vite.config.ts
@@ -55,6 +57,17 @@ import hai from 'hai-browser-vite';
 
 export default defineConfig({ plugins: [hai(), react()] });
 ```
+
+**Next.js** (Turbopack or `--webpack`, App or Pages Router, server and client components)
+
+```ts
+// next.config.ts
+import { withHaiBrowser } from 'hai-browser-next';
+
+export default withHaiBrowser({ /* your config */ });
+```
+
+`withHaiBrowser` only changes the config under `next dev`. It adds a `turbopack.rules` loader for `*.jsx`/`*.tsx` (skipping `node_modules`) and, for webpack dev builds, the same loader as an `enforce: 'pre'` rule. Other webpack setups can use the loader directly: `{ test: /\.[jt]sx$/, exclude: /node_modules/, enforce: 'pre', use: ['hai-browser-next/loader'] }`.
 
 It tags each HTML element with where it was written, e.g. `<button data-hai-src="src/PlanCard.tsx:6:7">`. Components are not tagged themselves (they may not pass unknown props to the DOM), so you land on the JSX element inside the component.
 
@@ -96,6 +109,9 @@ pnpm smoke                                     # drives the demo through the MCP
 
 pnpm --filter example-vite-react dev           # React demo tagged by hai-browser-vite, on :5173
 pnpm --filter hai-browser-mcp smoke:pick       # agent asks for a pick, checks it maps to src/PlanCard.tsx
+
+pnpm --filter example-next-app dev             # Next.js demo (Turbopack) on :3000; or dev:webpack (webpack, :3001), one at a time
+HAI_PICK_APP=next pnpm --filter hai-browser-mcp smoke:pick   # same check against app/Counter.tsx
 ```
 
 Packages:
@@ -103,8 +119,9 @@ Packages:
 - `packages/extension` — VS Code extension (browser bridge + agent API)
 - `packages/mcp` — `hai-browser-mcp` stdio MCP server
 - `packages/vite-plugin` — `hai-browser-vite`, dev-only `data-hai-src` tagging
+- `packages/next-plugin` — `hai-browser-next`, the same tagging for Next.js (Turbopack and webpack)
 - `packages/protocol` — shared types for the extension ↔ MCP protocol
-- `examples/demo`, `examples/vite-react` — test pages
+- `examples/demo`, `examples/vite-react`, `examples/next-app` — test pages
 
 ## License
 

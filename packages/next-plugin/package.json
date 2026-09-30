@@ -1,0 +1,43 @@
+{
+  "name": "hai-browser-next",
+  "version": "0.0.1",
+  "description": "Dev-only Next.js plugin (Turbopack and webpack) that tags JSX elements with their source file and line so H/Ai can jump from the page to the code.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SnapBlock/hai-browser"
+  },
+  "type": "module",
+  "main": "dist/index.cjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./loader": "./dist/loader.cjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/index.js && esbuild src/index.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/index.cjs && esbuild src/loader.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/loader.cjs --external:@babel/parser --external:magic-string && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "next": ">=15"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.9",
+    "magic-string": "^0.30.21"
+  },
+  "devDependencies": {
+    "next": "16.3.8"
+  }
+}
