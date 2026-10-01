@@ -28,6 +28,25 @@
       <p id="result" role="status"></p>
       <p class="hidden">This text is hidden and must not appear in snapshots.</p>
       <section id="about" aria-label="About"><h2>About</h2><p>A fixture page for hai-browser.</p></section>
+      <section id="controls" aria-label="Controls">
+        <h2>Controls</h2>
+        <div id="hovercard" tabindex="0" style="padding: 8px; border: 1px dashed #999">Hover me</div>
+        <p id="dbl" tabindex="0">Double-click me</p>
+        <label for="plan">Plan</label>
+        <select id="plan"><option value="free">Free</option><option value="pro">Pro</option><option value="team">Team</option></select>
+        <label for="file" style="display: inline-block; padding: 4px 8px; border: 1px solid #999">Attach a file</label>
+        <input id="file" type="file" style="display: none" />
+        <button id="delete" type="button">Delete account</button>
+        <button id="load" type="button">Load data</button>
+        <div style="position: relative; width: 200px; height: 16px; margin: 12px 0">
+          <div id="track" style="position: absolute; inset: 0; background: #ddd"></div>
+          <div id="knob" tabindex="0" aria-label="Knob" style="position: absolute; left: 0; top: 0; width: 16px; height: 16px; background: #7c3aed"></div>
+          <span id="mid" tabindex="-1" role="button" aria-label="Slider midpoint" style="position: absolute; left: 96px; top: 4px; width: 8px; height: 8px"></span>
+        </div>
+        <p id="log" role="log"></p>
+      </section>
+      <div style="height: 1500px"></div>
+      <p id="bottom">Bottom of the page</p>
     </main>
     <script>
       let count = 0;
@@ -41,6 +60,31 @@
         const email = document.getElementById('email').value;
         document.getElementById('result').textContent = 'Signed up as ' + email;
         console.warn('signup submitted', email);
+      });
+      const log = (msg) => (document.getElementById('log').textContent = msg);
+      const hover = document.getElementById('hovercard');
+      hover.addEventListener('mouseenter', () => (hover.textContent = 'Hovered'));
+      document.getElementById('dbl').addEventListener('dblclick', () => log('Double-clicked'));
+      document.getElementById('dbl').addEventListener('contextmenu', (e) => { e.preventDefault(); log('Right-clicked'); });
+      document.getElementById('plan').addEventListener('change', (e) => log('Plan: ' + e.target.value));
+      document.getElementById('file').addEventListener('change', (e) => log('Attached: ' + [...e.target.files].map((f) => f.name + ' (' + f.size + ' bytes)').join(', ')));
+      document.getElementById('delete').addEventListener('click', () => log(confirm('Really delete your account?') ? 'Deleted' : 'Kept'));
+      document.getElementById('load').addEventListener('click', () => {
+        log('Loading…');
+        setTimeout(() => fetch('index.html?data=1').then((r) => log('Loaded (' + r.status + ')')), 800);
+      });
+      const track = document.getElementById('track');
+      const knob = document.getElementById('knob');
+      let dragging = false;
+      knob.addEventListener('mousedown', () => (dragging = true));
+      window.addEventListener('mouseup', () => {
+        if (dragging) log('Slider: ' + Math.round((parseFloat(knob.style.left) / (track.clientWidth - 16)) * 100) + '%');
+        dragging = false;
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const x = Math.min(Math.max(e.clientX - track.getBoundingClientRect().left - 8, 0), track.clientWidth - 16);
+        knob.style.left = x + 'px';
       });
     </script>
   </body>

@@ -113,7 +113,12 @@ export function snapshotPage(maxLines: number): PageSnapshot {
   };
 
   const walk = (el: Element, depth: number): void => {
-    if (truncated || SKIP.has(el.tagName) || !isVisible(el)) return;
+    if (truncated || SKIP.has(el.tagName)) return;
+    if (!isVisible(el)) {
+      // File inputs are usually hidden behind a styled button; agents still need a ref for browser_upload_file.
+      if (el instanceof HTMLInputElement && el.type === 'file') push(depth, `file-input "${nameOf(el)}" [ref=${refFor(el)}] hidden`);
+      return;
+    }
     const interactive = el.matches(INTERACTIVE);
     const role = roleOf(el);
     let childDepth = depth;
@@ -162,7 +167,7 @@ export interface ElementBox {
 export function locateRef(ref: string, focus: boolean, clear: boolean): ElementBox | { error: string } {
   const el = window.__hai?.refs.get(ref)?.deref();
   if (!el || !el.isConnected) return { error: `Unknown or stale ref "${ref}". Take a new snapshot.` };
-  el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior });
+  el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior });
   if (focus && el instanceof HTMLElement) {
     el.focus();
     if (clear && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) el.select();
@@ -336,5 +341,75 @@ export function pollPicker(): PickState {
 export function stopPicker(): boolean {
   window.__haiPick?.stop();
   window.__haiPick = undefined;
+  return true;
+}
+
+export interface Viewport {
+  dpr: number;
+  width: number;
+  height: number;
+  scrollX: number;
+  scrollY: number;
+}
+
+export function viewportInfo(): Viewport {
+  return { dpr: devicePixelRatio, width: innerWidth, height: innerHeight, scrollX, scrollY };
+}
+
+export function pageHasText(text: string): boolean {
+  return (document.body?.innerText ?? '').includes(text);
+}
+
+export function selectOption(ref: string, values: string[]): { selected: string[] } | { error: string } {
+  const el = window.__hai?.refs.get(ref)?.deref();
+  if (!el || !el.isConnected) return { error: `Unknown or stale ref "${ref}". Take a new snapshot.` };
+  if (!(el instanceof HTMLSelectElement)) return { error: `Element ${ref} is not a <select>.` };
+  const wanted = new Set(values);
+  const options = Array.from(el.options);
+  const label = (o: HTMLOptionElement) => (o.label || o.textContent || '').trim();
+  let matched = options.filter(o => wanted.has(o.value) || wanted.has(label(o)));
+  if (!matched.length) {
+    return { error: `No option matches ${JSON.stringify(values)}. Options: ${options.map(o => JSON.stringify(label(o))).join(', ')}` };
+  }
+  if (!el.multiple) matched = matched.slice(0, 1);
+  el.focus();
+  for (const o of options) o.selected = matched.includes(o);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return { selected: matched.map(label) };
+}
+
+/** Draw each ref from the latest snapshot that is inside the viewport, for annotated screenshots. */
+export function annotateRefs(): number {
+  document.getElementById('__hai_marks')?.remove();
+  const hai = window.__hai;
+  if (!hai) return 0;
+  const layer = document.createElement('div');
+  layer.id = '__hai_marks';
+  layer.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none';
+  let count = 0;
+  for (const [ref, weak] of hai.refs) {
+    const el = weak.deref();
+    if (!el || !el.isConnected) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) continue;
+    const box = document.createElement('div');
+    box.style.cssText =
+      `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;` +
+      'border:1.5px solid #e11d48;border-radius:2px;box-sizing:border-box';
+    const tag = document.createElement('div');
+    tag.textContent = ref;
+    tag.style.cssText =
+      `position:fixed;left:${Math.max(0, r.left)}px;top:${Math.max(0, r.top - 14)}px;background:#e11d48;color:#fff;` +
+      'font:bold 11px/14px ui-monospace,monospace;padding:0 3px;border-radius:2px;white-space:nowrap';
+    layer.append(box, tag);
+    count++;
+  }
+  document.documentElement.append(layer);
+  return count;
+}
+
+export function removeAnnotations(): boolean {
+  document.getElementById('__hai_marks')?.remove();
   return true;
 }

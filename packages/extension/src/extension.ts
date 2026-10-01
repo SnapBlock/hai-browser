@@ -1,3 +1,4 @@
+import { isAbsolute, relative } from 'node:path';
 import * as vscode from 'vscode';
 import type { AgentMethods, AgentRequest, PickedElement } from '@hai-browser/protocol';
 import { AgentServer } from './agentServer';
@@ -19,7 +20,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   const renderStatus = (shared: boolean) => {
-    status.text = shared ? '$(globe) H/Ai: sharing' : '$(globe) H/Ai';
+    const n = bridge.tabCount;
+    status.text = shared ? `$(globe) H/Ai: sharing${n > 1 ? ` ${n} tabs` : ''}` : '$(globe) H/Ai';
     status.tooltip = shared ? 'A browser tab is shared with agents. Click to stop sharing.' : 'Share a browser tab with agents';
     status.command = shared ? 'haiBrowser.stopSharing' : 'haiBrowser.share';
     status.backgroundColor = shared ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
@@ -98,6 +100,7 @@ async function openSource(el: PickedElement, log: vscode.LogOutputChannel) {
 
 async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unknown> {
   const p = req.params as any;
+  const opts = { snapshot: p.snapshot, screenshot: p.screenshot };
   switch (req.method as keyof AgentMethods) {
     case 'status':
       return bridge.status();
@@ -110,15 +113,39 @@ async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unkno
     case 'snapshot':
       return bridge.snapshot();
     case 'click':
-      return bridge.click(requireString(p.ref, 'ref'));
+      return bridge.click({ ...opts, ...target(p), button: p.button, clickCount: p.clickCount, modifiers: p.modifiers });
+    case 'hover':
+      return bridge.hover({ ...opts, ...target(p) });
+    case 'scroll':
+      return bridge.scroll({ ...opts, ...target(p), deltaX: p.deltaX, deltaY: p.deltaY });
+    case 'drag':
+      return bridge.drag({ ...opts, from: target(p.from ?? {}), to: target(p.to ?? {}) });
     case 'type':
-      return bridge.type(requireString(p.ref, 'ref'), String(p.text ?? ''), p.clear ?? true, p.submit ?? false);
+      return bridge.type({ ...opts, ref: requireString(p.ref, 'ref'), text: String(p.text ?? ''), clear: p.clear, submit: p.submit });
     case 'press':
-      return bridge.press(requireString(p.key, 'key'));
+      return bridge.press({ ...opts, key: requireString(p.key, 'key') });
+    case 'select':
+      return bridge.select({ ...opts, ref: requireString(p.ref, 'ref'), values: requireStrings(p.values, 'values') });
+    case 'upload': {
+      const paths = requireStrings(p.paths, 'paths');
+      const roots = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
+      for (const file of paths) {
+        if (!isAbsolute(file) || !roots.some(root => isInside(file, root))) {
+          throw new Error(`Only files inside the open workspace folder can be uploaded (got ${file}). Use an absolute path.`);
+        }
+      }
+      return bridge.upload({ ...opts, ref: requireString(p.ref, 'ref'), paths });
+    }
+    case 'dialog':
+      return bridge.handleDialog({ ...opts, accept: p.accept !== false, promptText: p.promptText });
+    case 'waitFor':
+      return bridge.waitFor({ ...opts, text: p.text, textGone: p.textGone, timeSeconds: p.timeSeconds, timeoutSeconds: p.timeoutSeconds });
     case 'screenshot':
-      return bridge.screenshot(p.ref, p.fullPage);
+      return bridge.screenshot({ ref: p.ref, fullPage: p.fullPage, annotate: p.annotate });
     case 'console':
       return bridge.console(p.since, p.limit);
+    case 'network':
+      return bridge.network(p.since, p.limit, p.filter);
     case 'evaluate':
       if (!vscode.workspace.getConfiguration('haiBrowser').get<boolean>('allowEvaluate')) {
         throw new Error('browser_evaluate is disabled. The user can enable the "haiBrowser.allowEvaluate" setting.');
@@ -136,9 +163,37 @@ async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unkno
     }
     case 'selection':
       return { selection: bridge.lastSelection };
+    case 'tabs':
+      return bridge.listTabs();
+    case 'tabNew':
+      return bridge.newTab(requireString(p.url, 'url'));
+    case 'tabSelect':
+      return bridge.selectTab(requireString(p.id, 'id'));
+    case 'tabClose':
+      return bridge.closeTab(typeof p.id === 'string' ? p.id : undefined);
     default:
       throw new Error(`Unknown method: ${req.method}`);
   }
+}
+
+function target(p: any): { ref?: string; x?: number; y?: number } {
+  return {
+    ref: typeof p.ref === 'string' && p.ref ? p.ref : undefined,
+    x: typeof p.x === 'number' ? p.x : undefined,
+    y: typeof p.y === 'number' ? p.y : undefined,
+  };
+}
+
+function requireStrings(value: unknown, name: string): string[] {
+  if (!Array.isArray(value) || !value.length || !value.every(v => typeof v === 'string')) {
+    throw new Error(`"${name}" must be a non-empty array of strings.`);
+  }
+  return value;
+}
+
+function isInside(file: string, root: string) {
+  const rel = relative(root, file);
+  return !!rel && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
 function requireString(v: unknown, name: string): string {
