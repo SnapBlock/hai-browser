@@ -7,7 +7,7 @@
   "keywords": ["claude", "claude code", "mcp", "browser", "agent", "ai", "react", "vite", "next.js", "computer use"],
   "preview": true,
   "pricing": "Free",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "hai-browser",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/SnapBlock/hai-browser" },

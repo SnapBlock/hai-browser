@@ -48,7 +48,13 @@ function pidAlive(pid: number): boolean {
 }
 
 const NOT_RUNNING =
-  'The H/Ai VS Code extension is not running. Open VS Code (1.119+) with the "H/Ai Browser" extension installed, then retry.';
+  'H/Ai is not running in any VS Code window. Ask the user to check that the "H/Ai Browser" extension is installed and enabled in VS Code 1.119+, ' +
+  'and that the folder is trusted (VS Code turns H/Ai off in Restricted Mode). Then retry.';
+const UNREACHABLE =
+  'H/Ai is running in VS Code but did not accept the connection (the window may have been reloaded or closed). Retry in a few seconds.';
+// Covers a VS Code window reload, which recreates the lockfile on a new port.
+const CONNECT_WAIT_MS = 5000;
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /** Lazily (re)connects to the extension's agent API. */
 export class ExtensionConnection {
@@ -75,13 +81,19 @@ export class ExtensionConnection {
 
   private async connect(): Promise<WebSocket> {
     if (this.ws?.readyState === WebSocket.OPEN) return this.ws;
-    const lock = pickLockfile(readLockfiles(), this.cwd);
-    if (!lock) throw new Error(NOT_RUNNING);
-    const ws = new WebSocket(`ws://127.0.0.1:${lock.port}`, { headers: { [AUTH_HEADER]: lock.token } });
-    await new Promise<void>((resolve, reject) => {
-      ws.once('open', resolve);
-      ws.once('error', () => reject(new Error(NOT_RUNNING)));
-    });
+    const deadline = Date.now() + CONNECT_WAIT_MS;
+    let ws: WebSocket | undefined;
+    let sawLock = false;
+    while (!ws) {
+      const lock = pickLockfile(readLockfiles(), this.cwd);
+      if (lock) {
+        sawLock = true;
+        ws = await open(lock);
+      }
+      if (ws) break;
+      if (Date.now() >= deadline) throw new Error(sawLock ? UNREACHABLE : NOT_RUNNING);
+      await sleep(500);
+    }
     ws.on('message', raw => {
       const res = JSON.parse(raw.toString()) as AgentResponse;
       this.pending.get(res.id)?.(res);
@@ -95,4 +107,12 @@ export class ExtensionConnection {
     this.ws = ws;
     return ws;
   }
+}
+
+function open(lock: Lockfile): Promise<WebSocket | undefined> {
+  const ws = new WebSocket(`ws://127.0.0.1:${lock.port}`, { headers: { [AUTH_HEADER]: lock.token } });
+  return new Promise(resolve => {
+    ws.once('open', () => resolve(ws));
+    ws.once('error', () => resolve(undefined));
+  });
 }
