@@ -30,7 +30,7 @@ Everything runs on your machine. There is no hosted service and no telemetry.
 
 ## Install
 
-1. Install the extension. Download `hai-browser.vsix` from the [latest release](https://github.com/SnapBlock/hai-browser/releases/latest) and run `code --install-extension hai-browser.vsix`, or use the one-line installer:
+1. Install the extension: search for **H/Ai Browser** in VS Code's Extensions view, or run `code --install-extension snapblock.hai-browser`. You can also download `hai-browser.vsix` from the [latest release](https://github.com/SnapBlock/hai-browser/releases/latest) and run `code --install-extension hai-browser.vsix`, or use the one-line installer:
 
    ```sh
    # macOS / Linux
@@ -55,7 +55,7 @@ pnpm build
 pnpm --filter hai-browser package   # packages/extension/hai-browser.vsix
 ```
 
-Install that VSIX (or press **F5**, "Run hai-browser extension", in this repo) and connect as above. Pushing a `v*` tag builds the VSIX and attaches it to a GitHub release.
+Install that VSIX (or press **F5**, "Run hai-browser extension", in this repo) and connect as above. Pushing a `v*` tag that matches the extension's `version` builds the VSIX, attaches it to a GitHub release, and publishes it to the VS Code Marketplace (repo secret `VSCE_PAT`) and Open VSX (`OVSX_PAT`) when those secrets are set.
 
 ## Jump from the page to the code
 
