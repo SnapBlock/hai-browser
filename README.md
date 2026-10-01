@@ -30,7 +30,7 @@ Everything runs on your machine. There is no hosted service and no telemetry.
 
 ## Install
 
-1. Install the extension: search for **H/Ai Browser** in VS Code's Extensions view, or run `code --install-extension snapblock.hai-browser`. You can also download `hai-browser.vsix` from the [latest release](https://github.com/SnapBlock/hai-browser/releases/latest) and run `code --install-extension hai-browser.vsix`, or use the one-line installer:
+1. Install the extension: search for **H/Ai Browser** in VS Code's Extensions view, or run `code --install-extension hai-browser.hai-browser`. You can also download `hai-browser.vsix` from the [latest release](https://github.com/SnapBlock/hai-browser/releases/latest) and run `code --install-extension hai-browser.vsix`, or use the one-line installer:
 
    ```sh
    # macOS / Linux
