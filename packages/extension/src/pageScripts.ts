@@ -113,7 +113,7 @@ export function snapshotPage(maxLines: number): PageSnapshot {
   };
 
   const walk = (el: Element, depth: number): void => {
-    if (truncated || SKIP.has(el.tagName)) return;
+    if (truncated || SKIP.has(el.tagName) || el.hasAttribute('data-hai-ui')) return;
     if (!isVisible(el)) {
       // File inputs are usually hidden behind a styled button; agents still need a ref for browser_upload_file.
       if (el instanceof HTMLInputElement && el.type === 'file') push(depth, `file-input "${nameOf(el)}" [ref=${refFor(el)}] hidden`);
@@ -386,6 +386,7 @@ export function annotateRefs(): number {
   if (!hai) return 0;
   const layer = document.createElement('div');
   layer.id = '__hai_marks';
+  layer.setAttribute('data-hai-ui', '');
   layer.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none';
   let count = 0;
   for (const [ref, weak] of hai.refs) {
@@ -412,4 +413,78 @@ export function annotateRefs(): number {
 export function removeAnnotations(): boolean {
   document.getElementById('__hai_marks')?.remove();
   return true;
+}
+
+/** Glide the agent's visible pointer from (fx, fy) to (x, y). Purely visual: it never receives events. */
+export function moveCursor(fx: number, fy: number, x: number, y: number, ms: number): boolean {
+  const place = (px: number, py: number) => `translate(${px - 2}px,${py - 2}px)`;
+  let c = document.getElementById('__hai_cursor');
+  if (!c) {
+    c = document.createElement('div');
+    c.id = '__hai_cursor';
+    c.setAttribute('data-hai-ui', '');
+    c.setAttribute('aria-hidden', 'true');
+    c.style.cssText =
+      'all:initial;position:fixed;left:0;top:0;z-index:2147483647;pointer-events:none;will-change:transform;' +
+      'filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))';
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '24');
+    svg.setAttribute('viewBox', '0 0 20 24');
+    svg.style.cssText = 'display:block';
+    const arrow = document.createElementNS(ns, 'path');
+    arrow.setAttribute('d', 'M2 2v17.5l4.6-4.3 3.1 7 3.1-1.4-3-6.9h6.6z');
+    arrow.setAttribute('fill', '#111827');
+    arrow.setAttribute('stroke', '#fff');
+    arrow.setAttribute('stroke-width', '1.5');
+    arrow.setAttribute('stroke-linejoin', 'round');
+    svg.append(arrow);
+    const tag = document.createElement('span');
+    tag.textContent = 'H/Ai';
+    tag.style.cssText =
+      'all:initial;position:absolute;left:15px;top:19px;background:#7c3aed;color:#fff;' +
+      'font:600 10px/14px system-ui,sans-serif;padding:0 5px;border-radius:7px;white-space:nowrap';
+    c.append(svg, tag);
+    c.style.transform = place(fx, fy);
+    document.documentElement.append(c);
+  }
+  c.style.visibility = '';
+  c.style.transition = 'none';
+  void c.offsetWidth;
+  if (ms > 0) c.style.transition = `transform ${ms}ms cubic-bezier(.3,.7,.4,1)`;
+  c.style.transform = place(x, y);
+  return true;
+}
+
+/** A short ripple where the agent clicks. */
+export function cursorRipple(x: number, y: number): boolean {
+  const r = document.createElement('div');
+  r.setAttribute('data-hai-ui', '');
+  r.setAttribute('aria-hidden', 'true');
+  r.style.cssText =
+    `all:initial;position:fixed;left:${x - 14}px;top:${y - 14}px;width:28px;height:28px;box-sizing:border-box;` +
+    'border-radius:50%;border:2px solid #7c3aed;background:rgba(124,58,237,.25);z-index:2147483646;pointer-events:none';
+  document.documentElement.append(r);
+  r.animate([{ transform: 'scale(.3)', opacity: 1 }, { transform: 'scale(1.5)', opacity: 0 }], {
+    duration: 500,
+    easing: 'ease-out',
+    fill: 'forwards',
+  });
+  setTimeout(() => r.remove(), 600);
+  return true;
+}
+
+export function setCursorVisible(visible: boolean): boolean {
+  const c = document.getElementById('__hai_cursor');
+  if (c) c.style.visibility = visible ? '' : 'hidden';
+  return true;
+}
+
+/** Resolve after two rendered frames, so mouse moves Chromium queued for the next frame have been dispatched. */
+export function nextFrame(timeoutMs: number): Promise<boolean> {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+    setTimeout(() => resolve(false), timeoutMs);
+  });
 }
