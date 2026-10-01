@@ -25,6 +25,10 @@ import {
 import { CdpClient } from './cdp';
 import {
   annotateRefs,
+  cursorRipple,
+  moveCursor,
+  nextFrame,
+  setCursorVisible,
   invoke,
   locateRef,
   pageHasText,
@@ -49,6 +53,9 @@ const SNAPSHOT_MAX_LINES = 1500;
 const PICK_TIMEOUT_MS = 300_000;
 /** How long js-debug's tab picker may stay up before we dismiss it when looking for an existing tab. */
 const ATTACH_PICKER_GRACE_MS = 1500;
+const CURSOR_MIN_MS = 180;
+const CURSOR_MAX_MS = 550;
+const DRAG_STEP_MS = 16;
 
 const debugOptions: vscode.DebugSessionOptions = {
   suppressDebugToolbar: true,
@@ -85,6 +92,7 @@ class BrowserTab implements vscode.Disposable {
   private readonly dialogEmitter = new vscode.EventEmitter<DialogInfo>();
   readonly onDialog = this.dialogEmitter.event;
   dialog?: DialogInfo;
+  cursor?: { x: number; y: number };
   url = '';
   title = '';
 
@@ -329,11 +337,12 @@ export class BrowserBridge implements vscode.Disposable {
 
   click(p: PointTarget & ActionOptions & { button?: MouseButton; clickCount?: number; modifiers?: Modifier[] }) {
     return this.act(p, async tab => {
-      const { x, y } = await this.point(tab, p);
+      const { x, y } = await this.aim(tab, p);
       const button = p.button ?? 'left';
       const modifiers = modifierBits(p.modifiers);
       const count = Math.min(Math.max(Math.round(p.clickCount ?? 1), 1), 3);
       await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers });
+      await this.ripple(tab, { x, y });
       for (let clickCount = 1; clickCount <= count; clickCount++) {
         const base = { x, y, button, clickCount, modifiers };
         await tab.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...base, buttons: BUTTON_BITS[button] });
@@ -344,7 +353,7 @@ export class BrowserBridge implements vscode.Disposable {
 
   hover(p: PointTarget & ActionOptions) {
     return this.act(p, async tab => {
-      const { x, y } = await this.point(tab, p);
+      const { x, y } = await this.aim(tab, p);
       await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
     });
   }
@@ -359,8 +368,9 @@ export class BrowserBridge implements vscode.Disposable {
       }
       if (!deltaX && !deltaY) throw new Error('Pass deltaY (positive scrolls down) and/or deltaX, or a ref to scroll into view.');
       let at: { x: number; y: number };
-      if (p.ref || (typeof p.x === 'number' && typeof p.y === 'number')) at = await this.point(tab, p);
-      else {
+      if (p.ref || (typeof p.x === 'number' && typeof p.y === 'number')) {
+        at = await this.aim(tab, p);
+      } else {
         const v = await this.viewport(tab);
         at = { x: v.width / 2, y: v.height / 2 };
       }
@@ -371,16 +381,23 @@ export class BrowserBridge implements vscode.Disposable {
 
   drag(p: ActionOptions & { from: PointTarget; to: PointTarget }) {
     return this.act(p, async tab => {
-      const a = await this.point(tab, p.from);
+      const a = await this.aim(tab, p.from);
       const b = await this.point(tab, p.to);
       await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...a });
       await tab.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...a, button: 'left', buttons: 1, clickCount: 1 });
+      const cursor = this.showCursor();
       const steps = 12;
+      let prev = a;
       for (let i = 1; i <= steps; i++) {
-        const x = a.x + ((b.x - a.x) * i) / steps;
-        const y = a.y + ((b.y - a.y) * i) / steps;
-        await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1 });
+        const at = { x: a.x + ((b.x - a.x) * i) / steps, y: a.y + ((b.y - a.y) * i) / steps };
+        await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...at, button: 'left', buttons: 1 });
+        if (cursor) await this.evaluateOnce(tab, invoke(moveCursor, prev.x, prev.y, at.x, at.y, DRAG_STEP_MS)).catch(() => {});
+        prev = at;
+        await delay(DRAG_STEP_MS);
       }
+      tab.cursor = b;
+      // Chromium dispatches mouse moves with the next frame; release only once they have reached the page.
+      await this.evaluateOnce(tab, invoke(nextFrame, 200)).catch(() => {});
       await tab.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...b, button: 'left', buttons: 0, clickCount: 1 });
     });
   }
@@ -388,7 +405,8 @@ export class BrowserBridge implements vscode.Disposable {
   type(p: ActionOptions & { ref: string; text: string; clear?: boolean; submit?: boolean }) {
     const clear = p.clear ?? true;
     return this.act(p, async tab => {
-      await this.locate(tab, p.ref, true, clear);
+      const box = await this.locate(tab, p.ref, true, clear);
+      await this.glide(tab, { x: box.x + Math.min(box.width / 2, 24), y: box.y + box.height / 2 });
       if (clear) await this.pressKey(tab, 'Backspace');
       await tab.send('Input.insertText', { text: p.text });
       if (p.submit) await this.pressKey(tab, 'Enter');
@@ -613,6 +631,7 @@ export class BrowserBridge implements vscode.Disposable {
       const winner = await Promise.race([done, dialogOpened]);
       if (winner === 'dialog') done.catch(() => {});
       else {
+        await this.evaluateOnce(tab, invoke(nextFrame, 200)).catch(() => {});
         await delay(100);
         await this.waitForLoad(tab, 5_000);
       }
@@ -659,6 +678,7 @@ export class BrowserBridge implements vscode.Disposable {
     let width: number | undefined;
     let height: number | undefined;
     let snapshot: string | undefined;
+    await this.evaluateOnce(tab, invoke(setCursorVisible, false)).catch(() => {});
     if (p.annotate) {
       snapshot = (await this.snapshotIn(tab)).tree;
       await this.evaluateIn(tab, invoke(annotateRefs));
@@ -684,7 +704,39 @@ export class BrowserBridge implements vscode.Disposable {
       return { mimeType: 'image/png', data, width: width && Math.round(width), height: height && Math.round(height), snapshot };
     } finally {
       if (p.annotate) await this.evaluateOnce(tab, invoke(removeAnnotations)).catch(() => {});
+      await this.evaluateOnce(tab, invoke(setCursorVisible, true)).catch(() => {});
     }
+  }
+
+  private showCursor() {
+    return vscode.workspace.getConfiguration('haiBrowser').get<boolean>('showAgentCursor', true);
+  }
+
+  /** Glide the visible agent cursor to where the next input lands, so the human can follow along. */
+  private async glide(tab: BrowserTab, to: { x: number; y: number }) {
+    if (!this.showCursor()) return;
+    const from = tab.cursor ?? { x: to.x + 80, y: to.y + 60 };
+    const ms = Math.round(Math.min(CURSOR_MAX_MS, Math.max(CURSOR_MIN_MS, Math.hypot(to.x - from.x, to.y - from.y) * 1.2)));
+    tab.cursor = to;
+    const shown = await this.evaluateOnce(tab, invoke(moveCursor, from.x, from.y, to.x, to.y, ms)).then(
+      () => true,
+      () => false,
+    );
+    if (shown) await delay(ms);
+  }
+
+  /** Resolve a target and glide the cursor there. Refs are re-measured after the glide in case the layout moved. */
+  private async aim(tab: BrowserTab, target: PointTarget): Promise<{ x: number; y: number }> {
+    const first = await this.point(tab, target);
+    await this.glide(tab, first);
+    if (!target.ref || !this.showCursor()) return first;
+    const at = await this.point(tab, target);
+    if (Math.hypot(at.x - first.x, at.y - first.y) > 1) await this.glide(tab, at);
+    return at;
+  }
+
+  private async ripple(tab: BrowserTab, at: { x: number; y: number }) {
+    if (this.showCursor()) await this.evaluateOnce(tab, invoke(cursorRipple, at.x, at.y)).catch(() => {});
   }
 
   private async point(tab: BrowserTab, target: PointTarget): Promise<{ x: number; y: number }> {

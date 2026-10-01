@@ -25,6 +25,11 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Allow agents to run arbitrary JavaScript in the shared page (`browser_evaluate`)."
+        },
+        "haiBrowser.showAgentCursor": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show a pointer in the shared page that moves to where the agent clicks, hovers, drags and types. It is hidden from the agent's screenshots."
         }
       }
     }
