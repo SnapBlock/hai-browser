@@ -25,24 +25,37 @@ Everything runs on your machine. There is no hosted service and no telemetry.
 ## Requirements
 
 - VS Code **1.119+** (integrated browser + built-in JavaScript debugger)
-- Node.js **20+**
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or another MCP client
+- Node.js **20+** to build from source (installed users can do without it; H/Ai falls back to VS Code's runtime)
 
-## Setup (from source, until published)
+## Install
+
+1. Install the extension. Download `hai-browser.vsix` from the [latest release](https://github.com/SnapBlock/hai-browser/releases/latest) and run `code --install-extension hai-browser.vsix`, or use the one-line installer:
+
+   ```sh
+   # macOS / Linux
+   curl -fsSL https://raw.githubusercontent.com/SnapBlock/hai-browser/main/scripts/install.sh | sh
+   ```
+
+   ```powershell
+   # Windows (PowerShell)
+   irm https://raw.githubusercontent.com/SnapBlock/hai-browser/main/scripts/install.ps1 | iex
+   ```
+
+2. Open a folder in VS Code and trust it (the extension does not run in Restricted Mode). H/Ai asks **"let Claude Code use this browser?"**. Click **Connect Claude Code**. You can run it again any time with **H/Ai: Connect Claude Code**.
+3. Start `claude` in that folder (VS Code's terminal is easiest) and ask it to open your app, e.g. *"open http://localhost:5173 and check the signup form works"*. Or share a tab you already have open with **H/Ai: Share Browser Tab with Agent** (also in the status bar).
+
+The MCP server ships inside the extension. Connecting copies it to `~/.hai-browser/mcp/index.mjs` (kept up to date when the extension updates) and runs `claude mcp add --scope user hai-browser -- node ~/.hai-browser/mcp/index.mjs`. If Node.js 20+ isn't on your PATH, it uses VS Code's own runtime instead. For other MCP clients, **H/Ai: Show MCP Setup** shows the command to register.
+
+## Setup from source
 
 ```sh
 pnpm install
 pnpm build
+pnpm --filter hai-browser package   # packages/extension/hai-browser.vsix
 ```
 
-1. Open this repo in VS Code and press **F5** ("Run hai-browser extension"), or install the packaged VSIX (`pnpm --filter hai-browser package`).
-2. Register the MCP server with Claude Code:
-
-   ```sh
-   claude mcp add hai-browser -- node /path/to/hai-browser/packages/mcp/dist/index.js
-   # once published: claude mcp add hai-browser -- npx -y hai-browser-mcp
-   ```
-
-3. Ask Claude to open your app, e.g. *"open http://localhost:5173 and check the signup form works"*. Or share a tab you already have open with **H/Ai: Share Browser Tab with Agent** (also in the status bar).
+Install that VSIX (or press **F5**, "Run hai-browser extension", in this repo) and connect as above. Pushing a `v*` tag builds the VSIX and attaches it to a GitHub release.
 
 ## Jump from the page to the code
 
