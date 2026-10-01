@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 
 const SERVER_NAME = 'hai-browser';
 const OFFERED_KEY = 'haiBrowser.claudeConnectOffered';
+const OFFER_DELAY_MS = 4000;
 const isWindows = process.platform === 'win32';
 
 interface ServerCommand {
@@ -45,23 +46,30 @@ export function addCommandLine(cmd: ServerCommand): string {
 /** Register the MCP server with Claude Code (user scope), replacing any earlier H/Ai entry. */
 export async function connectClaude(context: vscode.ExtensionContext, log: vscode.LogOutputChannel): Promise<void> {
   await context.globalState.update(OFFERED_KEY, true);
-  const cmd = await serverCommand(await installServer(context));
-  const claude = await findClaude();
-  if (!claude) {
+  const result = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'H/Ai: connecting Claude Code…' },
+    async () => {
+      const cmd = await serverCommand(await installServer(context));
+      const claude = await findClaude();
+      if (!claude) return { cmd };
+      await run(claude, ['mcp', 'remove', '--scope', 'user', SERVER_NAME]);
+      const env = Object.entries(cmd.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
+      const added = await run(claude, ['mcp', 'add', '--scope', 'user', SERVER_NAME, ...env, '--', cmd.command, ...cmd.args]);
+      log.info(`${claude} mcp add: ${(added.stdout + added.stderr).trim()}`);
+      return { cmd, added };
+    },
+  );
+  if (!result.added) {
     const terminal = vscode.window.createTerminal('H/Ai: Connect Claude Code');
     terminal.show();
-    terminal.sendText(addCommandLine(cmd));
+    terminal.sendText(addCommandLine(result.cmd));
     vscode.window.showInformationMessage(
       'H/Ai: could not find the claude command from VS Code, so the setup command was sent to a terminal.',
     );
     return;
   }
-  await run(claude, ['mcp', 'remove', '--scope', 'user', SERVER_NAME]);
-  const env = Object.entries(cmd.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
-  const added = await run(claude, ['mcp', 'add', '--scope', 'user', SERVER_NAME, ...env, '--', cmd.command, ...cmd.args]);
-  log.info(`${claude} mcp add: ${(added.stdout + added.stderr).trim()}`);
-  if (!added.ok) {
-    vscode.window.showWarningMessage(`H/Ai: connecting Claude Code failed: ${(added.stderr || added.stdout).trim()}`);
+  if (!result.added.ok) {
+    vscode.window.showWarningMessage(`H/Ai: connecting Claude Code failed: ${(result.added.stderr || result.added.stdout).trim()}`);
     return;
   }
   vscode.window.showInformationMessage(
@@ -79,6 +87,8 @@ export async function offerClaudeConnect(context: vscode.ExtensionContext, log: 
     await context.globalState.update(OFFERED_KEY, true);
     return;
   }
+  // Right after an install VS Code shows its own notification; let it settle so the button isn't moved under the click.
+  await new Promise(resolve => setTimeout(resolve, OFFER_DELAY_MS));
   const pick = await vscode.window.showInformationMessage(
     'H/Ai: let Claude Code use this browser?',
     'Connect Claude Code',
