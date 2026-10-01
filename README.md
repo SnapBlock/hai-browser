@@ -63,6 +63,10 @@ Add the dev-only plugin for your framework (React/JSX; production builds are unt
 
 **Vite**
 
+```sh
+npm install -D hai-browser-vite
+```
+
 ```ts
 // vite.config.ts
 import react from '@vitejs/plugin-react';
@@ -72,6 +76,10 @@ export default defineConfig({ plugins: [hai(), react()] });
 ```
 
 **Next.js** (Turbopack or `--webpack`, App or Pages Router, server and client components)
+
+```sh
+npm install -D hai-browser-next
+```
 
 ```ts
 // next.config.ts
