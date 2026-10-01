@@ -49,7 +49,7 @@ const SESSION_NAME = 'H/Ai (shared browser)';
 const PAGE_SESSION_TYPE = 'pwa-editor-browser';
 const CONSOLE_CAPACITY = 500;
 const NETWORK_CAPACITY = 500;
-const SNAPSHOT_MAX_LINES = 1500;
+const SNAPSHOT_MAX_LINES = 4000;
 const PICK_TIMEOUT_MS = 300_000;
 /** How long js-debug's tab picker may stay up before we dismiss it when looking for an existing tab. */
 const ATTACH_PICKER_GRACE_MS = 1500;
