@@ -3,8 +3,7 @@ import * as vscode from 'vscode';
 import type { AgentMethods, AgentRequest, PickedElement } from '@hai-browser/protocol';
 import { AgentServer } from './agentServer';
 import { BrowserBridge } from './browser';
-
-const MCP_ADD_COMMAND = 'claude mcp add hai-browser -- npx -y hai-browser-mcp';
+import { addCommandLine, connectClaude, installServer, offerClaudeConnect, serverCommand } from './claudeSetup';
 
 export async function activate(context: vscode.ExtensionContext) {
   const bridge = new BrowserBridge();
@@ -68,14 +67,21 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand('haiBrowser.stopSharing', () => bridge.stop()),
+    vscode.commands.registerCommand('haiBrowser.connectClaude', () => connectClaude(context, log)),
     vscode.commands.registerCommand('haiBrowser.showConnectionInfo', async () => {
+      const cmd = await serverCommand(await installServer(context));
+      const line = addCommandLine(cmd);
       const pick = await vscode.window.showInformationMessage(
-        `Connect Claude Code with: ${MCP_ADD_COMMAND}`,
-        'Copy command',
+        `H/Ai MCP server: ${[cmd.command, ...cmd.args].join(' ')}. For Claude Code: ${line}`,
+        'Copy Claude Code command',
       );
-      if (pick) await vscode.env.clipboard.writeText(MCP_ADD_COMMAND);
+      if (pick) await vscode.env.clipboard.writeText(line);
     }),
   );
+
+  installServer(context)
+    .then(() => offerClaudeConnect(context, log))
+    .catch(e => log.error(`H/Ai setup failed: ${e instanceof Error ? e.message : e}`));
 }
 
 export function deactivate() {}

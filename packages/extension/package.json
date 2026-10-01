@@ -16,6 +16,7 @@
       { "command": "haiBrowser.share", "title": "Share Browser Tab with Agent", "category": "H/Ai" },
       { "command": "haiBrowser.pickElement", "title": "Pick Element and Open Source", "category": "H/Ai", "icon": "$(inspect)" },
       { "command": "haiBrowser.stopSharing", "title": "Stop Sharing Browser Tab", "category": "H/Ai" },
+      { "command": "haiBrowser.connectClaude", "title": "Connect Claude Code", "category": "H/Ai" },
       { "command": "haiBrowser.showConnectionInfo", "title": "Show MCP Setup", "category": "H/Ai" }
     ],
     "configuration": {
@@ -35,10 +36,11 @@
     }
   },
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap",
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap && pnpm run build:mcp",
+    "build:mcp": "esbuild ../mcp/src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mcp.mjs --minify --external:bufferutil --external:utf-8-validate --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "typecheck": "tsc -p tsconfig.json",
     "test": "echo 'no unit tests yet'",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies -o hai-browser.vsix"
   },
   "dependencies": {
     "@hai-browser/protocol": "workspace:*",
