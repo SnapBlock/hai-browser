@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 const SERVER_NAME = 'hai-browser';
 const OFFERED_KEY = 'haiBrowser.claudeConnectOffered';
 const isWindows = process.platform === 'win32';
+const CLAUDE_INSTALL_URL = 'https://docs.anthropic.com/en/docs/claude-code/setup';
 
 interface ServerCommand {
   command: string;
@@ -59,12 +60,14 @@ export async function connectClaude(context: vscode.ExtensionContext, log: vscod
     },
   );
   if (!result.added) {
-    const terminal = vscode.window.createTerminal('H/Ai: Connect Claude Code');
-    terminal.show();
-    terminal.sendText(addCommandLine(result.cmd));
-    vscode.window.showInformationMessage(
-      'H/Ai: could not find the claude command from VS Code, so the setup command was sent to a terminal.',
+    const line = addCommandLine(result.cmd);
+    const pick = await vscode.window.showWarningMessage(
+      'H/Ai: Claude Code is not installed (no claude command found). Install it, then run "H/Ai: Connect Claude Code" again.',
+      'Install Claude Code',
+      'Copy setup command',
     );
+    if (pick === 'Install Claude Code') await vscode.env.openExternal(vscode.Uri.parse(CLAUDE_INSTALL_URL));
+    else if (pick === 'Copy setup command') await vscode.env.clipboard.writeText(line);
     return;
   }
   if (!result.added.ok) {
