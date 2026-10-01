@@ -6,7 +6,6 @@ import * as vscode from 'vscode';
 
 const SERVER_NAME = 'hai-browser';
 const OFFERED_KEY = 'haiBrowser.claudeConnectOffered';
-const OFFER_DELAY_MS = 4000;
 const isWindows = process.platform === 'win32';
 
 interface ServerCommand {
@@ -87,12 +86,11 @@ export async function offerClaudeConnect(context: vscode.ExtensionContext, log: 
     await context.globalState.update(OFFERED_KEY, true);
     return;
   }
-  // Right after an install VS Code shows its own notification; let it settle so the button isn't moved under the click.
-  await new Promise(resolve => setTimeout(resolve, OFFER_DELAY_MS));
+  // A modal, because a corner notification shifts when VS Code's own install notification closes and the click misses.
   const pick = await vscode.window.showInformationMessage(
-    'H/Ai: let Claude Code use this browser?',
+    'Let Claude Code use this browser?',
+    { modal: true, detail: 'H/Ai will register its MCP server with Claude Code (user scope). You can do this later with "H/Ai: Connect Claude Code".' },
     'Connect Claude Code',
-    'Not now',
   );
   if (pick === 'Connect Claude Code') await connectClaude(context, log);
   else await context.globalState.update(OFFERED_KEY, true);
