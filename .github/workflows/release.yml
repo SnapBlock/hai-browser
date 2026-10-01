@@ -16,8 +16,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - name: Check tag matches extension version
+        run: test "v$(node -p "require('./packages/extension/package.json').version")" = "$GITHUB_REF_NAME"
       - run: pnpm --filter hai-browser run package
       - uses: softprops/action-gh-release@v2
         with:
           files: packages/extension/hai-browser.vsix
           generate_release_notes: true
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        working-directory: packages/extension
+        run: pnpm exec vsce publish --packagePath hai-browser.vsix
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx@0.10 publish packages/extension/hai-browser.vsix
