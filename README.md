@@ -57,6 +57,8 @@ pnpm --filter hai-browser package   # packages/extension/hai-browser.vsix
 
 Install that VSIX (or press **F5**, "Run hai-browser extension", in this repo) and connect as above. Pushing a `v*` tag that matches the extension's `version` builds the VSIX, attaches it to a GitHub release, and publishes it to the VS Code Marketplace (repo secret `VSCE_PAT`) and Open VSX (`OVSX_PAT`) when those secrets are set.
 
+The npm plugins publish separately through npm trusted publishing (no token): bump the plugin's `version`, then push a tag named `<package>@<version>`, e.g. `hai-browser-vite@0.0.2`. [`.github/workflows/npm-publish.yml`](.github/workflows/npm-publish.yml) checks the tag matches and runs `npm publish`.
+
 ## Jump from the page to the code
 
 Add the dev-only plugin for your framework (React/JSX; production builds are untouched).
