@@ -222,6 +222,11 @@ class BrowserTab implements vscode.Disposable {
  * built-in JavaScript debugger: an `editor-browser` debug session attaches to (or
  * launches) a tab, and `extension.js-debug.requestCDPProxy` exposes that page over CDP.
  */
+
+interface LayoutMetrics {
+  cssContentSize: { width: number; height: number };
+  cssVisualViewport?: { zoom?: number };
+}
 export class BrowserBridge implements vscode.Disposable {
   private readonly tabs = new Map<string, BrowserTab>();
   private activeId?: string;
@@ -673,11 +678,18 @@ export class BrowserBridge implements vscode.Disposable {
     return this.evaluateIn<Viewport>(tab, invoke(viewportInfo));
   }
 
+  /** Page zoom (CSS px → DIP). Screenshot clips are in DIP, so zoomed pages (e.g. VS Code window zoom) need scaling. */
+  private async zoom(tab: BrowserTab): Promise<number> {
+    const metrics = await tab.send<LayoutMetrics>('Page.getLayoutMetrics').catch(() => undefined);
+    return metrics?.cssVisualViewport?.zoom ?? 1;
+  }
+
   private async capture(tab: BrowserTab, p: { ref?: string; fullPage?: boolean; annotate?: boolean }): Promise<ScreenshotResult> {
     const params: Record<string, unknown> = { format: 'png' };
     let width: number | undefined;
     let height: number | undefined;
     let snapshot: string | undefined;
+    let restoreScroll = 0;
     await this.evaluateOnce(tab, invoke(setCursorVisible, false)).catch(() => {});
     if (p.annotate) {
       snapshot = (await this.snapshotIn(tab)).tree;
@@ -686,23 +698,33 @@ export class BrowserBridge implements vscode.Disposable {
     try {
       if (p.ref && !p.annotate) {
         const box = await this.locate(tab, p.ref, false);
-        params.clip = { x: box.x + box.scrollX, y: box.y + box.scrollY, width: box.width, height: box.height, scale: 1 };
+        const z = await this.zoom(tab);
+        params.clip = { x: (box.x + box.scrollX) * z, y: (box.y + box.scrollY) * z, width: box.width * z, height: box.height * z, scale: 1 };
         params.captureBeyondViewport = true;
         ({ width, height } = box);
       } else if (p.fullPage && !p.annotate) {
         params.captureBeyondViewport = true;
-        const metrics = await tab.send<{ cssContentSize: { width: number; height: number } }>('Page.getLayoutMetrics');
-        params.clip = { x: 0, y: 0, ...metrics.cssContentSize, scale: 1 };
+        const metrics = await tab.send<LayoutMetrics>('Page.getLayoutMetrics');
+        const z = metrics.cssVisualViewport?.zoom ?? 1;
+        const { width: w, height: h } = metrics.cssContentSize;
+        params.clip = { x: 0, y: 0, width: w * z, height: h * z, scale: 1 / ((await this.viewport(tab)).dpr || 1) };
+        // Sticky headers are painted at the current scroll position, so capture from the top and scroll back after.
+        restoreScroll = await this.evaluateIn<number>(tab, 'scrollY');
+        if (restoreScroll) await this.evaluateIn(tab, 'scrollTo(0, 0)').then(() => delay(100));
         ({ width, height } = metrics.cssContentSize);
       } else {
         const v = await this.viewport(tab);
         ({ width, height } = v);
+        const z = await this.zoom(tab);
         // Keep the image in CSS pixels so its coordinates can be passed straight to click/hover.
-        if (v.dpr !== 1) params.clip = { x: v.scrollX, y: v.scrollY, width: v.width, height: v.height, scale: 1 / v.dpr };
+        if (v.dpr !== 1 || z !== 1) {
+          params.clip = { x: v.scrollX * z, y: v.scrollY * z, width: v.width * z, height: v.height * z, scale: 1 / v.dpr };
+        }
       }
       const { data } = await tab.guard(tab.send<{ data: string }>('Page.captureScreenshot', params));
       return { mimeType: 'image/png', data, width: width && Math.round(width), height: height && Math.round(height), snapshot };
     } finally {
+      if (restoreScroll) await this.evaluateOnce(tab, `scrollTo(0, ${restoreScroll})`).catch(() => {});
       if (p.annotate) await this.evaluateOnce(tab, invoke(removeAnnotations)).catch(() => {});
       await this.evaluateOnce(tab, invoke(setCursorVisible, true)).catch(() => {});
     }
