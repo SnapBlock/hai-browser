@@ -140,6 +140,24 @@ Every action (`click`, `hover`, `scroll`, `drag`, `type`, `press_key`, `select_o
 
 Tabs are the ones shared with agents (opened by `browser_open`/`browser_tab_new`, or shared by you). VS Code's browser-tab API is still proposed, so agents can't see or switch to your other tabs until you share them.
 
+## FAQ
+
+**Is it free?** Yes. H/Ai is MIT-licensed and free. You bring your own agent (a Claude Code subscription, an API key, and so on); H/Ai adds no cost and needs no account.
+
+**Does anything leave my machine?** Not through H/Ai: there is no hosted browser, no server of ours, and no telemetry. Your agent sends what it reads (snapshots, screenshots, logs) to its own model provider, as with any other tool it uses.
+
+**Which agents work?** Any MCP client. Claude Code, Codex CLI and Gemini CLI have been tested end to end on a real store checkout. GitHub Copilot agent mode picks up the server automatically. Cline and others use the JSON config above. The server is also on npm (`npx -y hai-browser-mcp`) and in the [MCP Registry](https://registry.modelcontextprotocol.io/v0/servers/io.github.festuscharles-n%2Fhai-browser/versions/latest).
+
+**Which editors work?** VS Code 1.119+, VSCodium and Windsurf. Cursor doesn't yet, because it ships without VS Code's integrated browser. Antigravity doesn't either; it's based on VS Code 1.107.
+
+**Gemini CLI won't sign in with my Google account.** Google no longer allows Gemini CLI's Google sign-in for individual accounts. Create a free key at [AI Studio](https://aistudio.google.com/app/apikey) and set `GEMINI_API_KEY`.
+
+**Which frameworks support click-to-source?** React with Vite (`hai-browser-vite`) and Next.js with Turbopack or webpack (`hai-browser-next`). On other pages, picking still gives the agent the element's HTML, styles and screenshot, just not the source line. Vue and Svelte are next; [open an issue](https://github.com/SnapBlock/hai-browser/issues) if you need one.
+
+**How is this different from Playwright MCP or Chrome DevTools MCP?** Those usually launch and drive a separate browser. H/Ai uses the tab inside VS Code that you're already looking at: you see the agent's cursor, can take over at any time, and can point at an element to show the agent what you mean.
+
+**Can the agent see my other tabs?** No. Only tabs the agent opened or that you shared with **H/Ai: Share Browser Tab with Agent**.
+
 ## Security
 
 - The agent API listens on `127.0.0.1` only and rejects connections without the per-window token.
