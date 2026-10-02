@@ -160,6 +160,7 @@ node packages/mcp/scripts/computer-smoke.mjs http://127.0.0.1:8765/ /abs/path/in
 pnpm --filter hai-browser-mcp smoke:pick       # agent asks for a pick, checks it maps to src/PlanCard.tsx
 
 pnpm --filter example-next-app dev             # Next.js demo (Turbopack) on :3000; or dev:webpack (webpack, :3001), one at a time
+pnpm --filter example-vite-shop dev            # multi-page store (search, filters, cart, checkout, forms) on :5180
 HAI_PICK_APP=next pnpm --filter hai-browser-mcp smoke:pick   # same check against app/Counter.tsx
 ```
 
@@ -171,6 +172,7 @@ Packages:
 - `packages/next-plugin` — `hai-browser-next`, the same tagging for Next.js (Turbopack and webpack)
 - `packages/protocol` — shared types for the extension ↔ MCP protocol
 - `examples/demo`, `examples/vite-react`, `examples/next-app` — test pages
+- `examples/vite-shop` — a realistic multi-page store for end-to-end agent runs
 
 ## License
 
