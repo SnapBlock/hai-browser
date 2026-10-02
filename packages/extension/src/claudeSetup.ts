@@ -38,6 +38,55 @@ export async function serverCommand(serverPath: string): Promise<ServerCommand> 
   return { command: process.execPath, args: [serverPath], env: { ELECTRON_RUN_AS_NODE: '1' } };
 }
 
+export interface AgentSetup {
+  label: string;
+  text: string;
+  hint: string;
+}
+
+/** Copy-paste setup for MCP clients H/Ai cannot register itself with. */
+export function agentSetups(cmd: ServerCommand): AgentSetup[] {
+  const launch = [cmd.command, ...cmd.args].map(quote).join(' ');
+  const env = Object.entries(cmd.env);
+  const flags = (flag: string) => env.map(([k, v]) => ` ${flag} ${k}=${v}`).join('');
+  const json = JSON.stringify(
+    { mcpServers: { [SERVER_NAME]: { command: cmd.command, args: cmd.args, ...(env.length ? { env: cmd.env } : {}) } } },
+    null,
+    2,
+  );
+  const inTerminal = 'Run it in a terminal, then restart the agent.';
+  return [
+    { label: 'Claude Code', text: addCommandLine(cmd), hint: inTerminal },
+    { label: 'Codex CLI', text: `codex mcp add${flags('--env')} ${SERVER_NAME} -- ${launch}`, hint: inTerminal },
+    { label: 'Gemini CLI', text: `gemini mcp add --scope user ${SERVER_NAME} ${launch}${flags('-e')}`, hint: inTerminal },
+    {
+      label: 'Cline and other MCP clients (JSON)',
+      text: json,
+      hint: 'Merge it into the client\'s MCP settings file (for Cline: MCP Servers → Configure).',
+    },
+  ];
+}
+
+/** Lets VS Code's own agents (GitHub Copilot agent mode) start H/Ai with no setup. */
+export function registerVsCodeMcpServer(context: vscode.ExtensionContext): vscode.Disposable | undefined {
+  // Some VS Code forks don't have this API.
+  if (typeof vscode.lm?.registerMcpServerDefinitionProvider !== 'function') return undefined;
+  return vscode.lm.registerMcpServerDefinitionProvider(SERVER_NAME, {
+    provideMcpServerDefinitions: async () => {
+      const server = new vscode.McpStdioServerDefinition(
+        'H/Ai Browser',
+        process.execPath,
+        [await installServer(context)],
+        { ELECTRON_RUN_AS_NODE: '1' },
+        String(context.extension.packageJSON.version),
+      );
+      // The server connects to the VS Code window whose folder contains its working directory.
+      server.cwd = vscode.workspace.workspaceFolders?.[0]?.uri;
+      return [server];
+    },
+  });
+}
+
 export function addCommandLine(cmd: ServerCommand): string {
   const env = Object.entries(cmd.env).map(([k, v]) => ` -e ${k}=${v}`).join('');
   return ['claude', 'mcp', 'add', '--scope', 'user', SERVER_NAME].join(' ') + env + ' -- ' + [cmd.command, ...cmd.args].map(quote).join(' ');

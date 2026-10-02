@@ -1,13 +1,13 @@
 {
   "name": "hai-browser",
   "displayName": "H/Ai Browser",
-  "description": "Share VS Code's integrated browser with Claude Code and other MCP agents.",
+  "description": "Share VS Code's integrated browser with Claude Code, Copilot, Codex, Gemini CLI and other MCP agents.",
   "icon": "media/icon.png",
   "galleryBanner": { "color": "#1e1b2e", "theme": "dark" },
-  "keywords": ["claude", "claude code", "mcp", "browser", "agent", "ai", "react", "vite", "next.js", "computer use"],
+  "keywords": ["claude", "claude code", "copilot", "codex", "gemini", "mcp", "browser", "agent", "ai", "react", "vite", "next.js", "computer use"],
   "preview": true,
   "pricing": "Free",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "hai-browser",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/SnapBlock/hai-browser" },
@@ -24,7 +24,10 @@
       { "command": "haiBrowser.pickElement", "title": "Pick Element and Open Source", "category": "H/Ai", "icon": "$(inspect)" },
       { "command": "haiBrowser.stopSharing", "title": "Stop Sharing Browser Tab", "category": "H/Ai" },
       { "command": "haiBrowser.connectClaude", "title": "Connect Claude Code", "category": "H/Ai" },
-      { "command": "haiBrowser.showConnectionInfo", "title": "Show MCP Setup", "category": "H/Ai" }
+      { "command": "haiBrowser.showConnectionInfo", "title": "Connect Other Agents (Codex, Gemini CLI, Cline…)", "category": "H/Ai" }
+    ],
+    "mcpServerDefinitionProviders": [
+      { "id": "hai-browser", "label": "H/Ai Browser" }
     ],
     "configuration": {
       "title": "H/Ai Browser",

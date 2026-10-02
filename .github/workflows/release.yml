@@ -7,6 +7,9 @@ permissions:
 jobs:
   vsix:
     runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -25,12 +28,8 @@ jobs:
           generate_release_notes: true
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         working-directory: packages/extension
         run: pnpm exec vsce publish --packagePath hai-browser.vsix
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: npx --yes ovsx@0.10 publish packages/extension/hai-browser.vsix

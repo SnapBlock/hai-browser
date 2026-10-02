@@ -1,6 +1,6 @@
 # H/Ai — hai-browser
 
-Share VS Code's integrated browser with **Claude Code** (or any MCP agent). You and the agent work in the same browser tab: it reads the page, clicks and types with real input, takes screenshots and watches the console, while you watch and take over at any time.
+Share VS Code's integrated browser with **Claude Code**, **GitHub Copilot**, **Codex CLI**, **Gemini CLI**, **Cline** or any other MCP agent. You and the agent work in the same browser tab: it reads the page, clicks and types with real input, takes screenshots and watches the console, while you watch and take over at any time.
 
 Point at an element and H/Ai opens the line of code that rendered it, and the agent gets the same element (source location, HTML, styles, screenshot), so *"make this button match the header"* just works.
 
@@ -24,8 +24,8 @@ Everything runs on your machine. There is no hosted service and no telemetry.
 
 ## Requirements
 
-- VS Code **1.119+** (integrated browser + built-in JavaScript debugger)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or another MCP client
+- VS Code **1.119+** (integrated browser + built-in JavaScript debugger). **VSCodium** and **Windsurf** work too; they install H/Ai from [Open VSX](https://open-vsx.org/extension/hai-browser/hai-browser). **Cursor** and **Antigravity** don't yet: Cursor ships without VS Code's integrated browser, and Antigravity is based on VS Code 1.107.
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), GitHub Copilot, Codex CLI, Gemini CLI, Cline or another MCP client
 - Node.js **20+** to build from source (installed users can do without it; H/Ai falls back to VS Code's runtime)
 
 ## Install
@@ -45,7 +45,19 @@ Everything runs on your machine. There is no hosted service and no telemetry.
 2. Open a folder in VS Code and trust it (the extension does not run in Restricted Mode). H/Ai asks **"let Claude Code use this browser?"**. Click **Connect Claude Code**. You can run it again any time with **H/Ai: Connect Claude Code**.
 3. Start `claude` in that folder (VS Code's terminal is easiest) and ask it to open your app, e.g. *"open http://localhost:5173 and check the signup form works"*. Or share a tab you already have open with **H/Ai: Share Browser Tab with Agent** (also in the status bar).
 
-The MCP server ships inside the extension. Connecting copies it to `~/.hai-browser/mcp/index.mjs` (kept up to date when the extension updates) and runs `claude mcp add --scope user hai-browser -- node ~/.hai-browser/mcp/index.mjs`. If Node.js 20+ isn't on your PATH, it uses VS Code's own runtime instead. For other MCP clients, **H/Ai: Show MCP Setup** shows the command to register.
+The MCP server ships inside the extension. Connecting copies it to `~/.hai-browser/mcp/index.mjs` (kept up to date when the extension updates) and runs `claude mcp add --scope user hai-browser -- node ~/.hai-browser/mcp/index.mjs`. If Node.js 20+ isn't on your PATH, it uses VS Code's own runtime instead.
+
+### Other agents
+
+- **GitHub Copilot (agent mode in VS Code):** nothing to set up. H/Ai registers its MCP server with VS Code, so its tools show up in the chat's tools list.
+- **Codex CLI, Gemini CLI, Cline and other MCP clients:** run **H/Ai: Connect Other Agents**, pick your agent, and H/Ai copies the setup to your clipboard. It's the same server either way (the path exists once H/Ai has run in VS Code):
+
+  ```sh
+  codex mcp add hai-browser -- node ~/.hai-browser/mcp/index.mjs
+  gemini mcp add --scope user hai-browser node ~/.hai-browser/mcp/index.mjs
+  ```
+
+  For JSON-configured clients such as Cline, add `{"mcpServers": {"hai-browser": {"command": "node", "args": ["/Users/<you>/.hai-browser/mcp/index.mjs"]}}}` with your real home path.
 
 ## Setup from source
 

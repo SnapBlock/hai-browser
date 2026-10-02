@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import type { AgentMethods, AgentRequest, PickedElement } from '@hai-browser/protocol';
 import { AgentServer } from './agentServer';
 import { BrowserBridge } from './browser';
-import { addCommandLine, connectClaude, installServer, offerClaudeConnect, serverCommand } from './claudeSetup';
+import { agentSetups, connectClaude, installServer, offerClaudeConnect, registerVsCodeMcpServer, serverCommand } from './claudeSetup';
 
 export async function activate(context: vscode.ExtensionContext) {
   const bridge = new BrowserBridge();
@@ -69,15 +69,22 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('haiBrowser.stopSharing', () => bridge.stop()),
     vscode.commands.registerCommand('haiBrowser.connectClaude', () => connectClaude(context, log)),
     vscode.commands.registerCommand('haiBrowser.showConnectionInfo', async () => {
-      const cmd = await serverCommand(await installServer(context));
-      const line = addCommandLine(cmd);
-      const pick = await vscode.window.showInformationMessage(
-        `H/Ai MCP server: ${[cmd.command, ...cmd.args].join(' ')}. For Claude Code: ${line}`,
-        'Copy Claude Code command',
+      const setups = agentSetups(await serverCommand(await installServer(context)));
+      const pick = await vscode.window.showQuickPick(
+        setups.map(setup => ({ label: setup.label, detail: setup.text.replace(/\s+/g, ' '), setup })),
+        {
+          title: 'H/Ai: copy the setup for your agent',
+          placeHolder: 'Pick your agent (Copilot in VS Code needs no setup)',
+          matchOnDetail: true,
+        },
       );
-      if (pick) await vscode.env.clipboard.writeText(line);
+      if (!pick) return;
+      await vscode.env.clipboard.writeText(pick.setup.text);
+      vscode.window.setStatusBarMessage(`$(check) H/Ai: copied the ${pick.label} setup. ${pick.setup.hint}`, 10_000);
     }),
   );
+  const mcpProvider = registerVsCodeMcpServer(context);
+  if (mcpProvider) context.subscriptions.push(mcpProvider);
 
   installServer(context)
     .then(() => offerClaudeConnect(context, log))
