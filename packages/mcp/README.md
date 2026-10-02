@@ -14,4 +14,4 @@ claude mcp add --scope user hai-browser -- npx -y hai-browser-mcp
 
 See https://github.com/SnapBlock/hai-browser for details.
 
-<!-- mcp-name: io.github.SnapBlock/hai-browser -->
+<!-- mcp-name: io.github.festuscharles-n/hai-browser -->

@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.SnapBlock/hai-browser",
+  "name": "io.github.festuscharles-n/hai-browser",
   "title": "H/Ai Browser",
   "description": "Let AI agents drive VS Code's built-in browser alongside you, with click-to-source.",
   "repository": {

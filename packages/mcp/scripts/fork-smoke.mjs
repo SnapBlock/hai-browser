@@ -1,0 +1,22 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { writeFileSync } from 'node:fs';
+const out = process.argv[2] ?? '/tmp/fork.png';
+const client = new Client({ name: 'fork-smoke', version: '0.0.0' });
+await client.connect(new StdioClientTransport({ command: 'node', args: ['/home/ubuntu/repos/hai-browser/packages/extension/dist/mcp.mjs'], cwd: '/tmp/forkws' }));
+const call = async (name, args = {}) => {
+  const t = Date.now();
+  const res = await client.callTool({ name, arguments: args });
+  const text = res.content.filter(c => c.type === 'text').map(c => c.text).join('\n');
+  console.log(`=== ${name}${res.isError ? ' ERROR' : ''} (${Date.now() - t} ms)\n${text.slice(0, 600)}`);
+  return res;
+};
+await call('browser_status');
+await call('browser_open', { url: 'https://example.com' });
+const snap = await call('browser_snapshot');
+const ref = snap.content[0].text.match(/link.*?\[ref=(e\d+)\]/)?.[1];
+if (ref) await call('browser_click', { ref });
+const shot = await call('browser_screenshot');
+const img = shot.content.find(c => c.type === 'image');
+if (img) writeFileSync(out, Buffer.from(img.data, 'base64'));
+await client.close();
