@@ -215,6 +215,11 @@ class BrowserTab implements vscode.Disposable {
   }
 }
 
+interface LayoutMetrics {
+  cssContentSize: { width: number; height: number };
+  cssVisualViewport?: { zoom?: number };
+}
+
 /**
  * Owns the integrated-browser tabs shared with agents; actions go to the active tab.
  *
@@ -222,11 +227,6 @@ class BrowserTab implements vscode.Disposable {
  * built-in JavaScript debugger: an `editor-browser` debug session attaches to (or
  * launches) a tab, and `extension.js-debug.requestCDPProxy` exposes that page over CDP.
  */
-
-interface LayoutMetrics {
-  cssContentSize: { width: number; height: number };
-  cssVisualViewport?: { zoom?: number };
-}
 export class BrowserBridge implements vscode.Disposable {
   private readonly tabs = new Map<string, BrowserTab>();
   private activeId?: string;
