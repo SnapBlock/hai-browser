@@ -117,6 +117,11 @@ export function snapshotPage(maxLines: number): PageSnapshot {
     if (!isVisible(el)) {
       // File inputs are usually hidden behind a styled button; agents still need a ref for browser_upload_file.
       if (el instanceof HTMLInputElement && el.type === 'file') push(depth, `file-input "${nameOf(el)}" [ref=${refFor(el)}] hidden`);
+      // Custom checkboxes/radios hide the input and style its label; the ref points at the label so clicks land on it.
+      if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
+        const label = Array.from(el.labels ?? []).find(isVisible);
+        if (label) push(depth, `${el.type} "${nameOf(el)}" [ref=${refFor(label)}]${details(el)}`);
+      }
       return;
     }
     const interactive = el.matches(INTERACTIVE);
