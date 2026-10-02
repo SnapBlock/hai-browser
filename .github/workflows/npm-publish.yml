@@ -1,7 +1,7 @@
 name: Publish npm package
 on:
   push:
-    tags: ['hai-browser-vite@*', 'hai-browser-next@*']
+    tags: ['hai-browser-vite@*', 'hai-browser-next@*', 'hai-browser-mcp@*']
 permissions:
   id-token: write
   contents: read
@@ -27,6 +27,7 @@ jobs:
           case "$name" in
             hai-browser-vite) dir=packages/vite-plugin ;;
             hai-browser-next) dir=packages/next-plugin ;;
+            hai-browser-mcp) dir=packages/mcp ;;
             *) echo "Unknown package in tag: $name"; exit 1 ;;
           esac
           test "$(node -p "require('./$dir/package.json').version")" = "$version"

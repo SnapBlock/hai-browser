@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.SnapBlock/hai-browser",
+  "title": "H/Ai Browser",
+  "description": "Let AI agents drive VS Code's built-in browser alongside you, with click-to-source.",
+  "repository": {
+    "url": "https://github.com/SnapBlock/hai-browser",
+    "source": "github",
+    "subfolder": "packages/mcp"
+  },
+  "websiteUrl": "https://marketplace.visualstudio.com/items?itemName=hai-browser.hai-browser",
+  "version": "0.0.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "hai-browser-mcp",
+      "version": "0.0.1",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}
