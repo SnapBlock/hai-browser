@@ -100,6 +100,8 @@ class BrowserTab implements vscode.Disposable {
   cursor?: { x: number; y: number };
   /** The VS Code editor tab showing this page, when known. */
   editorTab?: vscode.Tab;
+  /** VS Code's id for the browser view, from CDP target info; it addresses the editor as `vscode-browser:/<id>`. */
+  viewId?: string;
   url = '';
   title = '';
 
@@ -555,6 +557,14 @@ export class BrowserBridge implements vscode.Disposable {
     // so it is only the fallback when the editor tab is unknown. Focus emulation keeps the page acting focused.
     if (!editorTab) return void (await tab.send('Page.bringToFront').catch(() => {}));
     if (editorTab.isActive) return;
+    // Opening the view's own resource with preserveFocus shows it without moving keyboard focus anywhere,
+    // including out of the terminal or a chat panel. Needs the view id, which older VS Code builds don't expose.
+    const viewId = await this.viewIdOf(tab);
+    if (viewId) {
+      const uri = vscode.Uri.from({ scheme: 'vscode-browser', path: `/${viewId}` });
+      const options = { preserveFocus: true, preview: false, viewColumn: editorTab.group.viewColumn };
+      if (await vscode.commands.executeCommand('vscode.open', uri, options).then(() => true, () => false)) return;
+    }
     const group = editorTab.group;
     const index = group.tabs.indexOf(editorTab);
     if (index < 0) return;
@@ -570,6 +580,12 @@ export class BrowserBridge implements vscode.Disposable {
     // Hand focus back to the group the user was in (e.g. an agent chat editor), so their typing isn't redirected.
     if (!group.isActive || !previous || previous === FOCUS_GROUP_COMMANDS[groups.indexOf(group)]) return;
     await vscode.commands.executeCommand(previous).then(undefined, () => {});
+  }
+
+  private async viewIdOf(tab: BrowserTab): Promise<string | undefined> {
+    if (tab.viewId) return tab.viewId;
+    const info = await tab.send<{ targetInfo?: { vscodeBrowserViewId?: string } }>('Target.getTargetInfo').catch(() => undefined);
+    return (tab.viewId = info?.targetInfo?.vscodeBrowserViewId);
   }
 
   private findEditorTab(tab: BrowserTab): vscode.Tab | undefined {
