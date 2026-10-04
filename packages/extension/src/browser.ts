@@ -77,6 +77,10 @@ const isOurPageSession = (s: vscode.DebugSession | undefined) =>
 const browserTabCount = () =>
   vscode.window.tabGroups.all.reduce((n, g) => n + g.tabs.filter(t => t.input === undefined).length, 0);
 
+const FOCUS_GROUP_COMMANDS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'].map(
+  n => `workbench.action.focus${n}EditorGroup`,
+);
+
 const BUTTON_BITS: Record<MouseButton, number> = { left: 1, right: 2, middle: 4 };
 
 const dialogError = (d: DialogInfo) =>
@@ -93,6 +97,8 @@ class BrowserTab implements vscode.Disposable {
   readonly onDialog = this.dialogEmitter.event;
   dialog?: DialogInfo;
   cursor?: { x: number; y: number };
+  /** The VS Code editor tab showing this page, when known. */
+  editorTab?: vscode.Tab;
   url = '';
   title = '';
 
@@ -321,7 +327,7 @@ export class BrowserBridge implements vscode.Disposable {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error(`No shared tab "${id}". Call browser_tabs to list them.`);
     this.activeId = id;
-    await tab.send('Page.bringToFront').catch(() => {});
+    await this.reveal(tab);
     this.changeEmitter.fire(true);
     return this.status();
   }
@@ -330,9 +336,11 @@ export class BrowserBridge implements vscode.Disposable {
     const tab = id ? this.tabs.get(id) : this.activeTab;
     if (!tab) throw new Error(id ? `No shared tab "${id}".` : 'No browser tab is shared.');
     const title = tab.title;
+    const editorTab = this.findEditorTab(tab);
     this.removeTab(tab.id);
     await Promise.race([vscode.debug.stopDebugging(tab.rootSession), delay(1500)]).catch(() => {});
-    await closeEditorTab(title);
+    if (editorTab) await vscode.window.tabGroups.close(editorTab).then(undefined, () => {});
+    else await closeEditorTab(title);
     return this.listTabs();
   }
 
@@ -478,8 +486,10 @@ export class BrowserBridge implements vscode.Disposable {
     return this.result(tab, p);
   }
 
-  screenshot(p: { ref?: string; fullPage?: boolean; annotate?: boolean } = {}): Promise<ScreenshotResult> {
-    return this.capture(this.requireTab(), p);
+  async screenshot(p: { ref?: string; fullPage?: boolean; annotate?: boolean } = {}): Promise<ScreenshotResult> {
+    const tab = this.requireTab();
+    await this.reveal(tab);
+    return this.capture(tab, p);
   }
 
   console(since = 0, limit = 100): ConsoleResult {
@@ -536,6 +546,32 @@ export class BrowserBridge implements vscode.Disposable {
     this.changeEmitter.fire(this.shared);
   }
 
+  /** Bring the tab's page to the front in VS Code, so the user sees the tab the agent is using. */
+  private async reveal(tab: BrowserTab) {
+    await tab.send('Page.bringToFront').catch(() => {});
+    if (!tab.editorTab && !tab.dialog) await this.refreshInfo(tab).catch(() => {});
+    const editorTab = this.findEditorTab(tab);
+    if (!editorTab || editorTab.isActive) return;
+    const group = editorTab.group;
+    const index = group.tabs.indexOf(editorTab);
+    if (index < 0) return;
+    if (!group.isActive) {
+      const focusGroup = FOCUS_GROUP_COMMANDS[vscode.window.tabGroups.all.indexOf(group)];
+      if (!focusGroup) return;
+      await vscode.commands.executeCommand(focusGroup);
+    }
+    // Opens the editor at this index in the active group.
+    await vscode.commands.executeCommand('workbench.action.openEditorAtIndex', index).then(undefined, () => {});
+  }
+
+  private findEditorTab(tab: BrowserTab): vscode.Tab | undefined {
+    const browserTabs = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => t.input === undefined);
+    if (tab.editorTab && browserTabs.includes(tab.editorTab)) return tab.editorTab;
+    const byTitle = browserTabs.filter(t => t.label === tab.title);
+    tab.editorTab = byTitle.length === 1 ? byTitle[0] : undefined;
+    return tab.editorTab;
+  }
+
   private requireTab(allowDialog = false): BrowserTab {
     const tab = this.activeTab;
     if (!tab) {
@@ -584,6 +620,10 @@ export class BrowserBridge implements vscode.Disposable {
       const rootStarted = vscode.debug.onDidStartDebugSession(s => {
         if (s.name === name && !s.parentSession) root = s;
       });
+      const openedEditorTabs: vscode.Tab[] = [];
+      const tabsOpened = vscode.window.tabGroups.onDidChangeTabs(e =>
+        openedEditorTabs.push(...e.opened.filter(t => t.input === undefined)),
+      );
       const sessionPromise = waitForPageSession(30_000, known, name);
       sessionPromise.catch(() => {});
       let session: vscode.DebugSession;
@@ -600,6 +640,7 @@ export class BrowserBridge implements vscode.Disposable {
         throw e;
       } finally {
         rootStarted.dispose();
+        tabsOpened.dispose();
       }
       const address = await vscode.commands.executeCommand<CdpProxyAddress | undefined>(
         'extension.js-debug.requestCDPProxy',
@@ -608,6 +649,8 @@ export class BrowserBridge implements vscode.Disposable {
       if (!address) throw new Error('js-debug did not return a CDP proxy for the browser tab.');
       const cdp = await CdpClient.connect(`ws://${address.host}:${address.port}${address.path}`);
       const tab = new BrowserTab(`t${this.nextTabId++}`, session, cdp);
+      // A launch opens exactly one new editor tab; an attach opens none, so it is matched by title later.
+      if (openedEditorTabs.length === 1) tab.editorTab = openedEditorTabs[0];
       cdp.on('close', () => this.removeTab(tab.id));
       await tab.init();
       this.tabs.set(tab.id, tab);
@@ -626,7 +669,7 @@ export class BrowserBridge implements vscode.Disposable {
   /** Run an input action, then report the page. If the action opens a JS dialog, return right away. */
   private async act(opts: ActionOptions, fn: (tab: BrowserTab) => Promise<void>): Promise<ActionResult> {
     const tab = this.requireTab();
-    await tab.send('Page.bringToFront').catch(() => {});
+    await this.reveal(tab);
     let sub: vscode.Disposable | undefined;
     const dialogOpened = new Promise<'dialog'>(resolve => {
       sub = tab.onDialog(() => resolve('dialog'));
@@ -771,7 +814,7 @@ export class BrowserBridge implements vscode.Disposable {
   }
 
   private async runPicker(tab: BrowserTab, timeoutMs: number): Promise<PickedElement | undefined> {
-    await tab.send('Page.bringToFront').catch(() => {});
+    await this.reveal(tab);
     await this.evaluateIn(tab, invoke(startPicker));
     const deadline = Date.now() + timeoutMs;
     try {
