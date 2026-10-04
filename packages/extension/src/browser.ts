@@ -549,10 +549,12 @@ export class BrowserBridge implements vscode.Disposable {
 
   /** Bring the tab's page to the front in VS Code, so the user sees the tab the agent is using. */
   private async reveal(tab: BrowserTab) {
-    await tab.send('Page.bringToFront').catch(() => {});
     if (!tab.editorTab && !tab.dialog) await this.refreshInfo(tab).catch(() => {});
     const editorTab = this.findEditorTab(tab);
-    if (!editorTab || editorTab.isActive) return;
+    // Page.bringToFront focuses the page's webContents, which pulls keyboard focus into the browser editor,
+    // so it is only the fallback when the editor tab is unknown. Focus emulation keeps the page acting focused.
+    if (!editorTab) return void (await tab.send('Page.bringToFront').catch(() => {}));
+    if (editorTab.isActive) return;
     const group = editorTab.group;
     const index = group.tabs.indexOf(editorTab);
     if (index < 0) return;
