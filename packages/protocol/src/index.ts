@@ -30,6 +30,8 @@ export interface AgentMethods {
     params: ActionOptions & { text?: string; textGone?: string; timeSeconds?: number; timeoutSeconds?: number };
     result: ActionResult;
   };
+  /** Scroll to text or an element, point the cursor at it and highlight it, so the user sees what the agent read. */
+  show: { params: ActionOptions & { text?: string; ref?: string; label?: string }; result: ActionResult };
   screenshot: { params: { ref?: string; fullPage?: boolean; annotate?: boolean }; result: ScreenshotResult };
   console: { params: { since?: number; limit?: number }; result: ConsoleResult };
   network: { params: { since?: number; limit?: number; filter?: string }; result: NetworkResult };
@@ -102,6 +104,14 @@ export interface ActionResult {
   screenshot?: ScreenshotResult;
   /** Set when a JavaScript dialog is open; the page is blocked until it is handled. */
   dialog?: DialogInfo;
+  /** What was highlighted for the user, by `show` or when `waitFor` found its text. */
+  shown?: ShownText;
+}
+
+export interface ShownText {
+  /** The highlighted text with a little surrounding context. */
+  text: string;
+  label?: string;
 }
 
 export interface DialogInfo {

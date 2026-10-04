@@ -35,6 +35,8 @@ await call('browser_open', { url }, /URL:|shared/);
 await call('browser_navigate', { action: 'reload' });
 await call('browser_snapshot', {}, /Increment/);
 await call('browser_click', { ref: ref('"Increment"') }, /"Clicks:"\n\s*- text: "1"/);
+await call('browser_show', { text: 'Clicks', label: 'Click count' }, /Showed the user \("Click count"\): ".*Clicks/);
+await expectError('browser_show', { text: 'no such text anywhere' });
 const shot = await call('browser_screenshot', { annotate: true }, /ref=e\d+/);
 const img = shot.content.find(c => c.type === 'image');
 if (img) writeFileSync('/tmp/hai-annotated.png', Buffer.from(img.data, 'base64'));

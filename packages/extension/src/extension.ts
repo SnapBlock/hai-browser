@@ -153,6 +153,8 @@ async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unkno
       return bridge.handleDialog({ ...opts, accept: p.accept !== false, promptText: p.promptText });
     case 'waitFor':
       return bridge.waitFor({ ...opts, text: p.text, textGone: p.textGone, timeSeconds: p.timeSeconds, timeoutSeconds: p.timeoutSeconds });
+    case 'show':
+      return bridge.show({ ...opts, text: optionalString(p.text), ref: optionalString(p.ref), label: optionalString(p.label) });
     case 'screenshot':
       return bridge.screenshot({ ref: p.ref, fullPage: p.fullPage, annotate: p.annotate });
     case 'console':
@@ -195,6 +197,10 @@ function target(p: any): { ref?: string; x?: number; y?: number } {
     x: typeof p.x === 'number' ? p.x : undefined,
     y: typeof p.y === 'number' ? p.y : undefined,
   };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined;
 }
 
 function requireStrings(value: unknown, name: string): string[] {
