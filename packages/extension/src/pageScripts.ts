@@ -384,40 +384,59 @@ export function selectOption(ref: string, values: string[]): { selected: string[
   return { selected: matched.map(label) };
 }
 
-/** Draw each ref from the latest snapshot that is inside the viewport, for annotated screenshots. */
-export function annotateRefs(): number {
-  document.getElementById('__hai_marks')?.remove();
+export interface RefBox {
+  ref: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** Viewport boxes of the refs from the latest snapshot that are on screen, for annotated screenshots. */
+export function refBoxes(): RefBox[] {
   const hai = window.__hai;
-  if (!hai) return 0;
-  const layer = document.createElement('div');
-  layer.id = '__hai_marks';
-  layer.setAttribute('data-hai-ui', '');
-  layer.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none';
-  let count = 0;
+  const boxes: RefBox[] = [];
+  if (!hai) return boxes;
   for (const [ref, weak] of hai.refs) {
     const el = weak.deref();
     if (!el || !el.isConnected) continue;
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) continue;
-    const box = document.createElement('div');
-    box.style.cssText =
-      `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;` +
-      'border:1.5px solid #e11d48;border-radius:2px;box-sizing:border-box';
-    const tag = document.createElement('div');
-    tag.textContent = ref;
-    tag.style.cssText =
-      `position:fixed;left:${Math.max(0, r.left)}px;top:${Math.max(0, r.top - 14)}px;background:#e11d48;color:#fff;` +
-      'font:bold 11px/14px ui-monospace,monospace;padding:0 3px;border-radius:2px;white-space:nowrap';
-    layer.append(box, tag);
-    count++;
+    boxes.push({ ref, left: r.left, top: r.top, width: r.width, height: r.height });
   }
-  document.documentElement.append(layer);
-  return count;
+  return boxes;
 }
 
-export function removeAnnotations(): boolean {
-  document.getElementById('__hai_marks')?.remove();
-  return true;
+/**
+ * Draw ref boxes onto a viewport screenshot (base64 PNG) off screen, so nothing flashes in the live page.
+ * Boxes are in CSS pixels; the image may be scaled.
+ */
+export async function drawRefMarks(png: string, boxes: RefBox[]): Promise<string> {
+  const bytes = Uint8Array.from(atob(png), c => c.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(bitmap, 0, 0);
+  const s = bitmap.width / innerWidth;
+  ctx.scale(s, s);
+  ctx.font = 'bold 11px ui-monospace, monospace';
+  ctx.textBaseline = 'middle';
+  for (const b of boxes) {
+    ctx.strokeStyle = '#e11d48';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(b.left + 0.75, b.top + 0.75, b.width - 1.5, b.height - 1.5);
+    const x = Math.max(0, b.left);
+    const y = Math.max(0, b.top - 14);
+    ctx.fillStyle = '#e11d48';
+    ctx.fillRect(x, y, ctx.measureText(b.ref).width + 6, 14);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(b.ref, x + 3, y + 7);
+  }
+  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  const out = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
+  return btoa(bin);
 }
 
 /** Glide the agent's visible pointer from (fx, fy) to (x, y). Purely visual: it never receives events. */

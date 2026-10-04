@@ -24,8 +24,8 @@ import {
 } from '@hai-browser/protocol';
 import { CdpClient } from './cdp';
 import {
-  annotateRefs,
   cursorRipple,
+  drawRefMarks,
   moveCursor,
   nextFrame,
   setCursorVisible,
@@ -33,7 +33,7 @@ import {
   locateRef,
   pageHasText,
   pollPicker,
-  removeAnnotations,
+  refBoxes,
   selectOption,
   snapshotPage,
   startPicker,
@@ -42,6 +42,7 @@ import {
   type ElementBox,
   type PageElementInfo,
   type PickState,
+  type RefBox,
   type Viewport,
 } from './pageScripts';
 
@@ -555,13 +556,18 @@ export class BrowserBridge implements vscode.Disposable {
     const group = editorTab.group;
     const index = group.tabs.indexOf(editorTab);
     if (index < 0) return;
+    const groups = vscode.window.tabGroups.all;
+    const previous = FOCUS_GROUP_COMMANDS[groups.indexOf(vscode.window.tabGroups.activeTabGroup)];
     if (!group.isActive) {
-      const focusGroup = FOCUS_GROUP_COMMANDS[vscode.window.tabGroups.all.indexOf(group)];
+      const focusGroup = FOCUS_GROUP_COMMANDS[groups.indexOf(group)];
       if (!focusGroup) return;
       await vscode.commands.executeCommand(focusGroup);
     }
     // Opens the editor at this index in the active group.
     await vscode.commands.executeCommand('workbench.action.openEditorAtIndex', index).then(undefined, () => {});
+    // Hand focus back to the group the user was in (e.g. an agent chat editor), so their typing isn't redirected.
+    if (!group.isActive || !previous || previous === FOCUS_GROUP_COMMANDS[groups.indexOf(group)]) return;
+    await vscode.commands.executeCommand(previous).then(undefined, () => {});
   }
 
   private findEditorTab(tab: BrowserTab): vscode.Tab | undefined {
@@ -733,10 +739,11 @@ export class BrowserBridge implements vscode.Disposable {
     let height: number | undefined;
     let snapshot: string | undefined;
     let restoreScroll = 0;
+    let boxes: RefBox[] | undefined;
     await this.evaluateOnce(tab, invoke(setCursorVisible, false)).catch(() => {});
     if (p.annotate) {
       snapshot = (await this.snapshotIn(tab)).tree;
-      await this.evaluateIn(tab, invoke(annotateRefs));
+      boxes = await this.evaluateIn<RefBox[]>(tab, invoke(refBoxes));
     }
     try {
       if (p.ref && !p.annotate) {
@@ -764,11 +771,11 @@ export class BrowserBridge implements vscode.Disposable {
           params.clip = { x: v.scrollX * z, y: v.scrollY * z, width: v.width * z, height: v.height * z, scale: 1 / v.dpr };
         }
       }
-      const { data } = await tab.guard(tab.send<{ data: string }>('Page.captureScreenshot', params));
+      let { data } = await tab.guard(tab.send<{ data: string }>('Page.captureScreenshot', params));
+      if (boxes?.length) data = await this.evaluateOnce<string>(tab, invoke(drawRefMarks, data, boxes)).catch(() => data);
       return { mimeType: 'image/png', data, width: width && Math.round(width), height: height && Math.round(height), snapshot };
     } finally {
       if (restoreScroll) await this.evaluateOnce(tab, `scrollTo(0, ${restoreScroll})`).catch(() => {});
-      if (p.annotate) await this.evaluateOnce(tab, invoke(removeAnnotations)).catch(() => {});
       await this.evaluateOnce(tab, invoke(setCursorVisible, true)).catch(() => {});
     }
   }
