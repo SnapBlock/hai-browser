@@ -473,11 +473,94 @@ export function moveCursor(fx: number, fy: number, x: number, y: number, ms: num
     c.style.transform = place(fx, fy);
     document.documentElement.append(c);
   }
-  c.style.visibility = '';
+  c.style.display = '';
   c.style.transition = 'none';
   void c.offsetWidth;
   if (ms > 0) c.style.transition = `transform ${ms}ms cubic-bezier(.3,.7,.4,1)`;
   c.style.transform = place(x, y);
+  return true;
+}
+
+export interface TextMatch {
+  box: { x: number; y: number; width: number; height: number };
+  /** The matched text with a little surrounding context. */
+  text: string;
+}
+
+/** Scroll the first visible occurrence of `text` (or the ref's element) into view and return its viewport box. */
+export function revealText(text: string | null, ref: string | null): TextMatch | { error: string } {
+  const visible = (r: DOMRect) => r.width > 0 && r.height > 0;
+  const textOf = (el: Element) => ((el as HTMLElement).innerText ?? el.textContent ?? '').replace(/\s+/g, ' ').trim();
+  let target: Element | Range | undefined;
+  let owner: Element | undefined;
+  if (ref) {
+    const el = window.__hai?.refs.get(ref)?.deref();
+    if (!el || !el.isConnected) return { error: `Unknown or stale ref "${ref}". Take a new snapshot.` };
+    target = owner = el;
+  } else if (text) {
+    const needle = text.toLowerCase();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: n =>
+        n.parentElement?.closest('[data-hai-ui],script,style,noscript,template') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    });
+    for (let n = walker.nextNode(); n && !target; n = walker.nextNode()) {
+      const i = (n.nodeValue ?? '').toLowerCase().indexOf(needle);
+      if (i < 0) continue;
+      const range = document.createRange();
+      range.setStart(n, i);
+      range.setEnd(n, i + text.length);
+      if (!visible(range.getBoundingClientRect())) continue;
+      target = range;
+      owner = n.parentElement ?? undefined;
+    }
+    if (!target) {
+      // Text split across elements (e.g. one span per OTP digit): the deepest element of the first match holding it all.
+      for (const el of Array.from(document.body.querySelectorAll('*'))) {
+        if (owner && !owner.contains(el)) continue;
+        if (el.closest('[data-hai-ui]') || !visible(el.getBoundingClientRect())) continue;
+        if (!(el as HTMLElement).innerText?.toLowerCase().includes(needle)) continue;
+        target = owner = el;
+      }
+    }
+  }
+  if (!target || !owner) return { error: `"${text}" is not visible on the page.` };
+  const r0 = target.getBoundingClientRect();
+  if (r0.top < 0 || r0.left < 0 || r0.bottom > innerHeight || r0.right > innerWidth) {
+    owner.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior });
+  }
+  let context = owner;
+  while (context.parentElement && context.parentElement !== document.body && textOf(context.parentElement).length <= 160) {
+    context = context.parentElement;
+  }
+  const r = target.getBoundingClientRect();
+  return { box: { x: r.x, y: r.y, width: r.width, height: r.height }, text: textOf(context).slice(0, 200) };
+}
+
+/** Outline a viewport box for `ms`, with an optional caption, to show the user what the agent is looking at. */
+export function highlightBox(x: number, y: number, width: number, height: number, label: string, ms: number): boolean {
+  const pad = 4;
+  const box = document.createElement('div');
+  box.setAttribute('data-hai-ui', '');
+  box.setAttribute('aria-hidden', 'true');
+  box.style.cssText =
+    `all:initial;position:fixed;left:${x - pad}px;top:${y - pad}px;width:${width + 2 * pad}px;height:${height + 2 * pad}px;` +
+    'box-sizing:border-box;border:2px solid #7c3aed;border-radius:6px;background:rgba(124,58,237,.12);' +
+    'box-shadow:0 0 0 4px rgba(124,58,237,.18);z-index:2147483646;pointer-events:none';
+  if (label) {
+    const tag = document.createElement('span');
+    tag.textContent = label;
+    tag.style.cssText =
+      `all:initial;position:absolute;left:-2px;${y < 28 ? 'top:calc(100% + 4px)' : 'bottom:calc(100% + 4px)'};` +
+      'background:#7c3aed;color:#fff;font:600 12px/18px system-ui,sans-serif;padding:0 7px;border-radius:9px;' +
+      'white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsis';
+    box.append(tag);
+  }
+  document.documentElement.append(box);
+  box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150 });
+  setTimeout(() => {
+    box.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, fill: 'forwards' });
+    setTimeout(() => box.remove(), 260);
+  }, ms);
   return true;
 }
 
@@ -501,7 +584,8 @@ export function cursorRipple(x: number, y: number): boolean {
 
 export function setCursorVisible(visible: boolean): boolean {
   const c = document.getElementById('__hai_cursor');
-  if (c) c.style.visibility = visible ? '' : 'hidden';
+  // display, not visibility: the badge resets its own visibility with all:initial, so a hidden parent wouldn't hide it.
+  if (c) c.style.display = visible ? '' : 'none';
   return true;
 }
 

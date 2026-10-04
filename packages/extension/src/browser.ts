@@ -16,6 +16,7 @@ import {
   type PickedElement,
   type PointTarget,
   type ScreenshotResult,
+  type ShownText,
   type SnapshotResult,
   type SourceLocation,
   type StatusResult,
@@ -26,6 +27,7 @@ import { CdpClient } from './cdp';
 import {
   cursorRipple,
   drawRefMarks,
+  highlightBox,
   moveCursor,
   nextFrame,
   setCursorVisible,
@@ -34,6 +36,7 @@ import {
   pageHasText,
   pollPicker,
   refBoxes,
+  revealText,
   selectOption,
   snapshotPage,
   startPicker,
@@ -43,6 +46,7 @@ import {
   type PageElementInfo,
   type PickState,
   type RefBox,
+  type TextMatch,
   type Viewport,
 } from './pageScripts';
 
@@ -56,6 +60,8 @@ const PICK_TIMEOUT_MS = 300_000;
 const ATTACH_PICKER_GRACE_MS = 1500;
 const CURSOR_MIN_MS = 180;
 const CURSOR_MAX_MS = 550;
+/** How long a highlight from `show` stays up. */
+const SHOW_MS = 1200;
 const DRAG_STEP_MS = 16;
 
 const debugOptions: vscode.DebugSessionOptions = {
@@ -486,7 +492,23 @@ export class BrowserBridge implements vscode.Disposable {
       }
       await delay(250);
     }
-    return this.result(tab, p);
+    // Reading is otherwise invisible to the user, so show them the text that was found.
+    let shown: ShownText | undefined;
+    if (p.text && !tab.dialog && this.showCursor()) {
+      await this.reveal(tab);
+      shown = await this.showIn(tab, { text: p.text }).catch(() => undefined);
+    }
+    return { ...(await this.result(tab, p)), shown };
+  }
+
+  /** Scroll to text or an element, point the cursor at it and highlight it, so the user sees what the agent read. */
+  async show(p: ActionOptions & { text?: string; ref?: string; label?: string }): Promise<ActionResult> {
+    if (!p.text && !p.ref) throw new Error('Pass the "text" to show, or an element "ref" from the snapshot.');
+    let shown: ShownText | undefined;
+    const res = await this.act(p, async tab => {
+      shown = await this.showIn(tab, p);
+    });
+    return { ...res, shown };
   }
 
   async screenshot(p: { ref?: string; fullPage?: boolean; annotate?: boolean } = {}): Promise<ScreenshotResult> {
@@ -823,6 +845,19 @@ export class BrowserBridge implements vscode.Disposable {
     const at = await this.point(tab, target);
     if (Math.hypot(at.x - first.x, at.y - first.y) > 1) await this.glide(tab, at);
     return at;
+  }
+
+  private async showIn(tab: BrowserTab, p: { text?: string; ref?: string; label?: string }): Promise<ShownText> {
+    const found = await this.evaluateIn<TextMatch | { error: string }>(tab, invoke(revealText, p.text ?? null, p.ref ?? null));
+    if ('error' in found) throw new Error(found.error);
+    const { x, y, width, height } = found.box;
+    await this.glide(tab, { x: x + width / 2, y: y + height + 2 });
+    const lit = await this.evaluateOnce(tab, invoke(highlightBox, x, y, width, height, p.label ?? '', SHOW_MS)).then(
+      () => true,
+      () => false,
+    );
+    if (lit) await delay(SHOW_MS + 300);
+    return { text: found.text, label: p.label };
   }
 
   private async ripple(tab: BrowserTab, at: { x: number; y: number }) {

@@ -13,6 +13,7 @@ const INSTRUCTIONS = [
   "H/Ai Browser drives the web browser built into the user's VS Code. The user watches it live and can pick elements in it.",
   'Use these tools (not WebFetch, curl, or other browser tools) whenever the user asks to open, visit, look at, click through, test, fill in, screenshot, or debug a web page or a local dev server, or mentions "the browser" or "the page".',
   'Start with browser_open (or browser_tabs to see what is already open), then browser_snapshot to read the page and act on its refs.',
+  'The user cannot see what you read from snapshots: before you use something you read on the page (a verification code, a link, a price, an error), call browser_show on it so they can see it.',
   UNTRUSTED,
 ].join(' ');
 
@@ -41,6 +42,7 @@ const image = (shot: ScreenshotResult) => ({ type: 'image' as const, data: shot.
 /** Every action reports the page afterwards, so the agent sees the effect without another call. */
 const action = (r: ActionResult): ToolResult => {
   const lines = [`URL: ${r.url}`, `Title: ${r.title}`, `Tab: ${r.tabId}`];
+  if (r.shown) lines.push(`Showed the user${r.shown.label ? ` (${JSON.stringify(r.shown.label)})` : ''}: ${JSON.stringify(r.shown.text)}`);
   if (r.dialog) {
     lines.push(
       `A ${r.dialog.type} dialog is open: ${JSON.stringify(r.dialog.message)}. The page is blocked until you call browser_handle_dialog.`,
@@ -248,7 +250,7 @@ server.registerTool(
 server.registerTool(
   'browser_wait_for',
   {
-    description: `Wait until text appears or disappears on the page, or for a number of seconds. ${AFTER}`,
+    description: `Wait until text appears or disappears on the page, or for a number of seconds. Text that appears is scrolled into view and highlighted for the user. ${AFTER}`,
     inputSchema: {
       text: z.string().optional(),
       textGone: z.string().optional(),
@@ -258,6 +260,24 @@ server.registerTool(
     },
   },
   params => run(async () => action(await conn.call('waitFor', params)))(),
+);
+
+server.registerTool(
+  'browser_show',
+  {
+    description:
+      'Show the user something on the page: scroll it into view, move the visible cursor to it and highlight it for a moment, with an optional caption. ' +
+      'Call it before you use a value you read on the page (a verification code, a link, a price, an error message), since the user cannot see what you read from snapshots. ' +
+      `Returns the highlighted text with its context. ${UNTRUSTED}`,
+    inputSchema: {
+      text: z.string().optional().describe('Text to find on the page (first visible match, case-insensitive)'),
+      ref: z.string().optional().describe('Element ref from the latest snapshot, instead of text'),
+      label: z.string().max(80).optional().describe('Short caption next to the highlight, e.g. "Verification code"'),
+      snapshot: z.boolean().optional().describe('Return the page snapshot afterwards (default false)'),
+      screenshot: actionOptions.screenshot,
+    },
+  },
+  params => run(async () => action(await conn.call('show', { ...params, snapshot: params.snapshot ?? false })))(),
 );
 
 server.registerTool(

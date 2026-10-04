@@ -128,7 +128,8 @@ Agents read it with `browser_get_selection`, or call it with `wait: true` to ask
 | `browser_select_option` | Pick `<select>` options by value or label |
 | `browser_upload_file` | Set a file input's files (paths must be inside the workspace) |
 | `browser_handle_dialog` | Accept or dismiss an `alert` / `confirm` / `prompt` |
-| `browser_wait_for` | Wait for text to appear or disappear, or for some seconds |
+| `browser_wait_for` | Wait for text to appear or disappear, or for some seconds. Text that appears is highlighted for you |
+| `browser_show` | Scroll to text or an element, point the cursor at it and highlight it with an optional caption, so you see what the agent read (codes, links, prices) |
 | `browser_screenshot` | Viewport (in CSS pixels, so `x`/`y` work with click), full page, or one element. `annotate: true` labels every ref on the image |
 | `browser_console` | Console messages and uncaught errors, incrementally via `since` |
 | `browser_network` | Requests with method, status, type, duration and size, incrementally via `since` |
