@@ -473,7 +473,7 @@ export function moveCursor(fx: number, fy: number, x: number, y: number, ms: num
     c.style.transform = place(fx, fy);
     document.documentElement.append(c);
   }
-  c.style.visibility = '';
+  c.style.display = '';
   c.style.transition = 'none';
   void c.offsetWidth;
   if (ms > 0) c.style.transition = `transform ${ms}ms cubic-bezier(.3,.7,.4,1)`;
@@ -584,7 +584,8 @@ export function cursorRipple(x: number, y: number): boolean {
 
 export function setCursorVisible(visible: boolean): boolean {
   const c = document.getElementById('__hai_cursor');
-  if (c) c.style.visibility = visible ? '' : 'hidden';
+  // display, not visibility: the badge resets its own visibility with all:initial, so a hidden parent wouldn't hide it.
+  if (c) c.style.display = visible ? '' : 'none';
   return true;
 }
 
