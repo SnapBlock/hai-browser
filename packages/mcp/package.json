@@ -1,6 +1,6 @@
 {
   "name": "hai-browser-mcp",
-  "version": "0.0.1",
+  "version": "0.0.8",
   "mcpName": "io.github.festuscharles-n/hai-browser",
   "description": "MCP server that lets Claude Code and other agents drive the browser tab shared from VS Code via the H/Ai extension.",
   "license": "MIT",
