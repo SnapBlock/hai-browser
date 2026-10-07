@@ -9,12 +9,12 @@
     "subfolder": "packages/mcp"
   },
   "websiteUrl": "https://marketplace.visualstudio.com/items?itemName=hai-browser.hai-browser",
-  "version": "0.0.1",
+  "version": "0.0.8",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "hai-browser-mcp",
-      "version": "0.0.1",
+      "version": "0.0.8",
       "transport": { "type": "stdio" }
     }
   ]
