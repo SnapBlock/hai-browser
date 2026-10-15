@@ -526,7 +526,7 @@ export function revealText(text: string | null, ref: string | null): TextMatch |
     if (!el || !el.isConnected) return { error: `Unknown or stale ref "${ref}". Take a new snapshot.` };
     target = owner = el;
   } else if (text) {
-    const needle = text.toLowerCase();
+    const needle = text.replace(/\s+/g, ' ').trim().toLowerCase();
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode: n =>
         n.parentElement?.closest('[data-hai-ui],script,style,noscript,template') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
@@ -546,8 +546,28 @@ export function revealText(text: string | null, ref: string | null): TextMatch |
       for (const el of Array.from(document.body.querySelectorAll('*'))) {
         if (owner && !owner.contains(el)) continue;
         if (el.closest('[data-hai-ui]') || !visible(el.getBoundingClientRect())) continue;
-        if (!(el as HTMLElement).innerText?.toLowerCase().includes(needle)) continue;
+        if (!textOf(el).toLowerCase().includes(needle)) continue;
         target = owner = el;
+      }
+      if (owner) {
+        // Narrow the highlight from the whole element to just the matched characters, ignoring whitespace.
+        const chars: [Text, number][] = [];
+        let flat = '';
+        const texts = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT);
+        for (let n = texts.nextNode() as Text | null; n; n = texts.nextNode() as Text | null) {
+          if (n.parentElement?.closest('script,style')) continue;
+          const v = n.nodeValue ?? '';
+          for (let k = 0; k < v.length; k++) if (!/\s/.test(v.charAt(k))) { flat += v.charAt(k).toLowerCase(); chars.push([n, k]); }
+        }
+        const want = needle.replace(/\s+/g, '');
+        const first = want ? chars[flat.indexOf(want)] : undefined;
+        const last = first && chars[flat.indexOf(want) + want.length - 1];
+        if (first && last) {
+          const range = document.createRange();
+          range.setStart(first[0], first[1]);
+          range.setEnd(last[0], last[1] + 1);
+          if (visible(range.getBoundingClientRect())) target = range;
+        }
       }
     }
   }
