@@ -115,7 +115,7 @@ server.registerTool(
 server.registerTool(
   'browser_snapshot',
   {
-    description: `Read the shared page as an accessibility-style outline. Interactive elements have [ref=eN] for use with the other browser_* tools; an element keeps its ref while it stays on the page. Long pages come in parts: pass the offset given at the end to read on. ${UNTRUSTED}`,
+    description: `Read the shared page as an accessibility-style outline. Interactive elements have [ref=eN] for use with the other browser_* tools; an element keeps its ref while it stays on the page. Iframes are outlined inline, and refs inside them look like f1e3; sandboxed srcdoc frames (e.g. email viewers) are read-only, so open their links with browser_navigate. Long pages come in parts: pass the offset given at the end to read on. ${UNTRUSTED}`,
     inputSchema: {
       offset: z.number().int().min(0).optional().describe('Character offset to continue a long snapshot from, as given at the end of the previous part.'),
     },
