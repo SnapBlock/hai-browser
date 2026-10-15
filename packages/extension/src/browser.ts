@@ -28,6 +28,7 @@ import {
   cursorRipple,
   describeRef,
   drawRefMarks,
+  frameOffset,
   highlightBox,
   moveCursor,
   nextFrame,
@@ -244,8 +245,14 @@ interface LayoutMetrics {
  * built-in JavaScript debugger: an `editor-browser` debug session attaches to (or
  * launches) a tab, and `extension.js-debug.requestCDPProxy` exposes that page over CDP.
  */
+interface FrameWorld {
+  frameId: string;
+  contextId: number;
+}
+
 export class BrowserBridge implements vscode.Disposable {
   private readonly tabs = new Map<string, BrowserTab>();
+  private readonly frameWorlds = new WeakMap<BrowserTab, Map<string, FrameWorld>>();
   private activeId?: string;
   private trace: StepTrace = { points: [] };
   private nextTabId = 1;
@@ -444,7 +451,11 @@ export class BrowserBridge implements vscode.Disposable {
 
   select(p: ActionOptions & { ref: string; values: string[] }) {
     return this.act(p, async tab => {
-      const res = await this.evaluateIn<{ selected: string[] } | { error: string }>(tab, invoke(selectOption, p.ref, p.values));
+      const res = await this.evaluateAt<{ selected: string[] } | { error: string }>(
+        tab,
+        this.frameOf(tab, p.ref),
+        invoke(selectOption, p.ref, p.values),
+      );
       if ('error' in res) throw new Error(res.error);
     });
   }
@@ -486,7 +497,14 @@ export class BrowserBridge implements vscode.Disposable {
     const deadline = Date.now() + timeout * 1000;
     while (p.text || p.textGone) {
       if (tab.dialog) break;
-      const has = (t: string) => this.evaluateIn<boolean>(tab, invoke(pageHasText, t)).catch(() => undefined);
+      const has = async (t: string) => {
+        const main = await this.evaluateIn<boolean>(tab, invoke(pageHasText, t)).catch(() => undefined);
+        if (main !== false) return main;
+        for (const world of (await this.refreshFrames(tab)).values()) {
+          if (await this.evaluateOnce<boolean>(tab, invoke(pageHasText, t), world).catch(() => false)) return true;
+        }
+        return false;
+      };
       const shown = p.text ? await has(p.text) : true;
       const gone = p.textGone ? (await has(p.textGone)) === false : true;
       if (shown && gone) break;
@@ -547,7 +565,13 @@ export class BrowserBridge implements vscode.Disposable {
   async describeRef(ref: string): Promise<RefInfo | undefined> {
     const tab = this.activeId ? this.tabs.get(this.activeId) : undefined;
     if (!tab || tab.isClosed) return undefined;
-    return this.evaluateOnce<RefInfo | null>(tab, invoke(describeRef, ref)).then(
+    let frame;
+    try {
+      frame = this.frameOf(tab, ref);
+    } catch {
+      return undefined;
+    }
+    return this.evaluateOnce<RefInfo | null>(tab, invoke(describeRef, ref), frame?.world).then(
       r => r ?? undefined,
       () => undefined,
     );
@@ -796,8 +820,91 @@ export class BrowserBridge implements vscode.Disposable {
     tab.title = title;
   }
 
-  private snapshotIn(tab: BrowserTab): Promise<SnapshotResult> {
-    return this.evaluateIn<SnapshotResult>(tab, invoke(snapshotPage, SNAPSHOT_MAX_LINES));
+  private async snapshotIn(tab: BrowserTab): Promise<SnapshotResult> {
+    const frames = await this.refreshFrames(tab);
+    const snap = await this.evaluateIn<SnapshotResult>(tab, invoke(snapshotPage, SNAPSHOT_MAX_LINES));
+    if (!frames.size) return snap;
+    const lines: string[] = [];
+    for (const line of snap.tree.split('\n')) {
+      const m = /^(\s*)- @@frame (f\d+)@@$/.exec(line);
+      if (!m) {
+        lines.push(line);
+        continue;
+      }
+      const [, indent = '', name = ''] = m;
+      const world = frames.get(name);
+      const sub = world
+        ? await this.evaluateOnce<SnapshotResult>(tab, invoke(snapshotPage, SNAPSHOT_MAX_LINES, name + 'e'), world).catch(
+            () => undefined,
+          )
+        : undefined;
+      if (sub?.tree) lines.push(...sub.tree.split('\n').map(l => indent + l));
+      else lines.push(indent + '- (frame content unavailable)');
+      if (sub?.truncated) snap.truncated = true;
+    }
+    return { ...snap, tree: lines.join('\n') };
+  }
+
+  /**
+   * The page's in-process child frames: each gets an isolated world to run page scripts in, and its
+   * iframe element is tagged so snapshots and boxes can find it. Names stay stable while the frame does.
+   */
+  private async refreshFrames(tab: BrowserTab): Promise<Map<string, FrameWorld>> {
+    const old = this.frameWorlds.get(tab);
+    const next = new Map<string, FrameWorld>();
+    const tree = await tab
+      .send<{ frameTree: { childFrames?: { frame: { id: string } }[] } }>('Page.getFrameTree')
+      .catch(() => undefined);
+    // Out-of-process frames (sandboxed or cross-site) are separate CDP targets, which js-debug's proxy can't reach;
+    // snapshotPage reads sandboxed srcdoc frames from their HTML instead.
+    for (const frameId of (tree?.frameTree.childFrames ?? []).map(c => c.frame.id)) {
+      // getFrameOwner fails for frames that aren't children of this page.
+      const owner = await tab.send<{ backendNodeId: number }>('DOM.getFrameOwner', { frameId }).catch(() => undefined);
+      if (!owner) continue;
+      const name = 'f' + (next.size + 1);
+      const known = [...(old?.values() ?? [])].find(w => w.frameId === frameId);
+      let world = known && (await this.evaluateOnce(tab, '1', known).catch(() => undefined)) === 1 ? known : undefined;
+      if (!world) {
+        const created = await tab
+          .send<{ executionContextId: number }>('Page.createIsolatedWorld', { frameId, worldName: 'hai-browser' })
+          .catch(() => undefined);
+        if (!created) continue;
+        world = { frameId, contextId: created.executionContextId };
+      }
+      const node = await tab
+        .send<{ object: { objectId?: string } }>('DOM.resolveNode', { backendNodeId: owner.backendNodeId })
+        .catch(() => undefined);
+      if (node?.object.objectId) {
+        await tab
+          .send('Runtime.callFunctionOn', {
+            objectId: node.object.objectId,
+            functionDeclaration: `function () { this.setAttribute('data-hai-frame', ${JSON.stringify(name)}); }`,
+          })
+          .catch(() => {});
+      }
+      next.set(name, world);
+    }
+    this.frameWorlds.set(tab, next);
+    return next;
+  }
+
+  /** The frame a ref from a frame snapshot (e.g. "f1e3") belongs to; undefined for refs in the page itself. */
+  private frameOf(tab: BrowserTab, ref?: string | null): { name: string; world: FrameWorld } | undefined {
+    const name = ref ? /^(f\d+)e\d+$/.exec(ref)?.[1] : undefined;
+    if (!name) return undefined;
+    const world = this.frameWorlds.get(tab)?.get(name);
+    if (!world) throw new Error(`Unknown or stale ref "${ref}". Take a new snapshot.`);
+    return { name, world };
+  }
+
+  private evaluateAt<T>(tab: BrowserTab, frame: { world: FrameWorld } | undefined, expression: string): Promise<T> {
+    return frame ? this.evaluateOnce<T>(tab, expression, frame.world) : this.evaluateIn<T>(tab, expression);
+  }
+
+  private async offsetOf(tab: BrowserTab, name: string): Promise<{ x: number; y: number }> {
+    const o = await this.evaluateIn<{ x: number; y: number } | null>(tab, invoke(frameOffset, name));
+    if (!o) throw new Error(`Frame ${name} is gone. Take a new snapshot.`);
+    return o;
   }
 
   private viewport(tab: BrowserTab): Promise<Viewport> {
@@ -824,6 +931,13 @@ export class BrowserBridge implements vscode.Disposable {
     if (p.annotate) {
       snapshot = (await this.snapshotIn(tab)).tree;
       boxes = await this.evaluateIn<RefBox[]>(tab, invoke(refBoxes));
+      for (const [name, world] of this.frameWorlds.get(tab) ?? []) {
+        const inner = await this.evaluateOnce<RefBox[]>(tab, invoke(refBoxes), world).catch(() => []);
+        const o = inner.length
+          ? await this.evaluateOnce<{ x: number; y: number } | null>(tab, invoke(frameOffset, name)).catch(() => null)
+          : null;
+        if (o) boxes.push(...inner.map(b => ({ ...b, left: b.left + o.x, top: b.top + o.y })));
+      }
     }
     try {
       if (p.ref && !p.annotate) {
@@ -891,9 +1005,28 @@ export class BrowserBridge implements vscode.Disposable {
   }
 
   private async showIn(tab: BrowserTab, p: { text?: string; ref?: string; label?: string }): Promise<ShownText> {
-    const found = await this.evaluateIn<TextMatch | { error: string }>(tab, invoke(revealText, p.text ?? null, p.ref ?? null));
+    let frame = this.frameOf(tab, p.ref);
+    let found = await this.evaluateAt<TextMatch | { error: string }>(tab, frame, invoke(revealText, p.text ?? null, p.ref ?? null));
+    if ('error' in found && p.text && !p.ref) {
+      for (const [name, world] of await this.refreshFrames(tab)) {
+        const r = await this.evaluateOnce<TextMatch | { error: string }>(tab, invoke(revealText, p.text, null), world).catch(
+          () => undefined,
+        );
+        if (r && !('error' in r)) {
+          found = r;
+          frame = { name, world };
+          break;
+        }
+      }
+    }
     if ('error' in found) throw new Error(found.error);
-    const { x, y, width, height } = found.box;
+    let { x, y } = found.box;
+    const { width, height } = found.box;
+    if (frame) {
+      const o = await this.offsetOf(tab, frame.name);
+      x += o.x;
+      y += o.y;
+    }
     this.trace.box = { x, y, width, height };
     await this.glide(tab, { x: x + width / 2, y: y + height + 2 });
     const lit = await this.evaluateOnce(tab, invoke(highlightBox, x, y, width, height, p.label ?? '', SHOW_MS)).then(
@@ -940,8 +1073,14 @@ export class BrowserBridge implements vscode.Disposable {
   }
 
   private async locate(tab: BrowserTab, ref: string, focus: boolean, clear = false): Promise<ElementBox> {
-    const box = await this.evaluateIn<ElementBox | { error: string }>(tab, invoke(locateRef, ref, focus, clear));
+    const frame = this.frameOf(tab, ref);
+    const box = await this.evaluateAt<ElementBox | { error: string }>(tab, frame, invoke(locateRef, ref, focus, clear));
     if ('error' in box) throw new Error(box.error);
+    if (frame) {
+      const o = await this.offsetOf(tab, frame.name);
+      box.x += o.x;
+      box.y += o.y;
+    }
     this.trace.box = { x: box.x, y: box.y, width: box.width, height: box.height };
     return box;
   }
@@ -985,14 +1124,18 @@ export class BrowserBridge implements vscode.Disposable {
     throw lastError;
   }
 
-  private async evaluateOnce<T>(tab: BrowserTab, expression: string): Promise<T> {
+  private async evaluateOnce<T>(tab: BrowserTab, expression: string, world?: FrameWorld): Promise<T> {
     const res = await tab.guard(
-      tab.send<{ result: { value?: T }; exceptionDetails?: any }>('Runtime.evaluate', {
-        expression,
-        returnByValue: true,
-        awaitPromise: true,
-        userGesture: true,
-      }),
+      tab.send<{ result: { value?: T }; exceptionDetails?: any }>(
+        'Runtime.evaluate',
+        {
+          expression,
+          contextId: world?.contextId,
+          returnByValue: true,
+          awaitPromise: true,
+          userGesture: true,
+        },
+      ),
     );
     if (res.exceptionDetails) {
       throw new Error(res.exceptionDetails.exception?.description ?? res.exceptionDetails.text ?? 'Evaluation failed');

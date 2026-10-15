@@ -14,7 +14,8 @@ export interface PageSnapshot {
   truncated: boolean;
 }
 
-export function snapshotPage(maxLines: number): PageSnapshot {
+/** `prefix` names refs, so refs from a frame's snapshot (e.g. "f1e3") route back to that frame. */
+export function snapshotPage(maxLines: number, prefix = 'e'): PageSnapshot {
   const hai = (window.__hai ??= { next: 1, ids: new WeakMap(), refs: new Map() });
   hai.refs.clear();
   const lines: string[] = [];
@@ -43,7 +44,7 @@ export function snapshotPage(maxLines: number): PageSnapshot {
   const refFor = (el: Element) => {
     let ref = hai.ids.get(el);
     if (!ref) {
-      ref = 'e' + hai.next++;
+      ref = prefix + hai.next++;
       hai.ids.set(el, ref);
     }
     hai.refs.set(ref, new WeakRef(el));
@@ -121,6 +122,37 @@ export function snapshotPage(maxLines: number): PageSnapshot {
       if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
         const label = Array.from(el.labels ?? []).find(isVisible);
         if (label) push(depth, `${el.type} "${nameOf(el)}" [ref=${refFor(label)}]${details(el)}`);
+      }
+      return;
+    }
+    // Frames are snapshotted in their own world by the extension, which replaces this placeholder.
+    const frame = el.tagName === 'IFRAME' ? el.getAttribute('data-hai-frame') : null;
+    if (frame) {
+      push(depth, `iframe "${clean(el.getAttribute('title') || el.getAttribute('name'))}" [frame=${frame}]:`);
+      push(depth + 1, `@@frame ${frame}@@`);
+      return;
+    }
+    // Sandboxed srcdoc frames (e.g. email viewers) run out of process, out of reach: outline their HTML, read-only.
+    const srcdoc = el.tagName === 'IFRAME' ? el.getAttribute('srcdoc') : null;
+    if (srcdoc) {
+      push(depth, `iframe "${clean(el.getAttribute('title') || el.getAttribute('name'))}" (sandboxed, read-only: open its links with browser_navigate):`);
+      const doc = new DOMParser().parseFromString(srcdoc, 'text/html');
+      const blocks = new Map<Element, string[]>();
+      const texts = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      for (let n = texts.nextNode(); n; n = texts.nextNode()) {
+        const parent = n.parentElement;
+        const t = clean(n.nodeValue, 400);
+        if (!parent || !t || parent.closest('script,style,noscript,template,head')) continue;
+        const block = parent.closest('a[href]') ?? parent.closest('p,li,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,div,body') ?? parent;
+        if (!blocks.has(block)) blocks.set(block, []);
+        blocks.get(block)!.push(t);
+      }
+      for (const [block, parts] of blocks) {
+        const t = clean(parts.join(' '), 400);
+        const ok = block instanceof HTMLAnchorElement
+          ? push(depth + 1, `link "${t}" href="${clean(block.getAttribute('href'), 200)}"`)
+          : push(depth + 1, `text: "${t}"`);
+        if (!ok) return;
       }
       return;
     }
@@ -357,12 +389,25 @@ export interface Viewport {
   scrollY: number;
 }
 
+/** Viewport position of a tagged iframe's content box, to map boxes inside the frame onto the page. */
+export function frameOffset(name: string): { x: number; y: number } | null {
+  const f = document.querySelector(`iframe[data-hai-frame="${name}"]`);
+  if (!f) return null;
+  const r = f.getBoundingClientRect();
+  const s = getComputedStyle(f);
+  return { x: r.left + f.clientLeft + parseFloat(s.paddingLeft), y: r.top + f.clientTop + parseFloat(s.paddingTop) };
+}
+
 export function viewportInfo(): Viewport {
   return { dpr: devicePixelRatio, width: innerWidth, height: innerHeight, scrollX, scrollY };
 }
 
 export function pageHasText(text: string): boolean {
-  return (document.body?.innerText ?? '').includes(text);
+  if ((document.body?.innerText ?? '').includes(text)) return true;
+  // Sandboxed srcdoc frames are out of reach, so check their HTML.
+  return Array.from(document.querySelectorAll('iframe[srcdoc]:not([data-hai-frame])')).some(f =>
+    (new DOMParser().parseFromString(f.getAttribute('srcdoc') ?? '', 'text/html').body?.textContent ?? '').includes(text),
+  );
 }
 
 export function selectOption(ref: string, values: string[]): { selected: string[] } | { error: string } {
@@ -521,6 +566,7 @@ export function revealText(text: string | null, ref: string | null): TextMatch |
   const textOf = (el: Element) => ((el as HTMLElement).innerText ?? el.textContent ?? '').replace(/\s+/g, ' ').trim();
   let target: Element | Range | undefined;
   let owner: Element | undefined;
+  let framed: string | undefined;
   if (ref) {
     const el = window.__hai?.refs.get(ref)?.deref();
     if (!el || !el.isConnected) return { error: `Unknown or stale ref "${ref}". Take a new snapshot.` };
@@ -540,6 +586,21 @@ export function revealText(text: string | null, ref: string | null): TextMatch |
       if (!visible(range.getBoundingClientRect())) continue;
       target = range;
       owner = n.parentElement ?? undefined;
+    }
+    if (!target) {
+      // A sandboxed srcdoc frame is out of reach: highlight the whole frame holding the text.
+      for (const f of Array.from(document.querySelectorAll('iframe[srcdoc]:not([data-hai-frame])'))) {
+        const body = new DOMParser().parseFromString(f.getAttribute('srcdoc') ?? '', 'text/html').body;
+        const parts: string[] = [];
+        const walker = body && body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        for (let n = walker?.nextNode(); n; n = walker?.nextNode()) if (!n.parentElement?.closest('script,style')) parts.push(n.nodeValue ?? '');
+        const all = parts.join(' ').replace(/\s+/g, ' ').trim();
+        const at = all.toLowerCase().indexOf(needle);
+        if (at < 0 || !visible(f.getBoundingClientRect())) continue;
+        framed = all.slice(Math.max(0, at - 80), at + needle.length + 80);
+        target = owner = f;
+        break;
+      }
     }
     if (!target) {
       // Text split across elements (e.g. one span per OTP digit): the deepest element of the first match holding it all.
@@ -581,7 +642,7 @@ export function revealText(text: string | null, ref: string | null): TextMatch |
     context = context.parentElement;
   }
   const r = target.getBoundingClientRect();
-  return { box: { x: r.x, y: r.y, width: r.width, height: r.height }, text: textOf(context).slice(0, 200) };
+  return { box: { x: r.x, y: r.y, width: r.width, height: r.height }, text: framed ?? textOf(context).slice(0, 200) };
 }
 
 /** Outline a viewport box for `ms`, with an optional caption, to show the user what the agent is looking at. */
