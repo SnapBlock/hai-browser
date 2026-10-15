@@ -439,4 +439,8 @@ server.registerTool(
     })(),
 );
 
+server.server.oninitialized = () => {
+  const info = server.server.getClientVersion();
+  if (info) conn.client = { name: info.name, version: info.version };
+};
 await server.connect(new StdioServerTransport());

@@ -596,3 +596,39 @@ export function nextFrame(timeoutMs: number): Promise<boolean> {
     setTimeout(() => resolve(false), timeoutMs);
   });
 }
+
+export interface RefInfo {
+  role: string;
+  name: string;
+  src?: string;
+  /** Password or card field: typed text must not be recorded. */
+  secret: boolean;
+}
+
+/** Short description of a snapshot ref's element, for run recordings. */
+export function describeRef(ref: string): RefInfo | null {
+  const el = window.__hai?.refs.get(ref)?.deref();
+  if (!el || !el.isConnected) return null;
+  const tag = el.tagName;
+  const input = el instanceof HTMLInputElement ? el : undefined;
+  const roles: Record<string, string> = { A: 'link', BUTTON: 'button', SELECT: 'combobox', TEXTAREA: 'textbox', IMG: 'img', SUMMARY: 'button' };
+  let role = el.getAttribute('role') || roles[tag] || '';
+  if (!role && input) role = ['checkbox', 'radio'].includes(input.type) ? input.type : ['submit', 'button', 'reset'].includes(input.type) ? 'button' : 'textbox';
+  if (!role && /^H[1-6]$/.test(tag)) role = 'heading';
+  if (!role) role = tag.toLowerCase();
+  const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  let name = clean(el.getAttribute('aria-label'));
+  if (!name && (input || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
+    const f = el as HTMLInputElement;
+    const wrap = el.closest('label');
+    const wrapText = wrap ? (wrap.textContent ?? '').replace(el.textContent ?? '', '') : '';
+    name = clean(f.labels?.[0]?.textContent?.replace(el.textContent ?? '', '')) || clean(wrapText) || clean(f.placeholder);
+    if (!name && el instanceof HTMLSelectElement) name = clean(el.selectedOptions[0]?.textContent);
+  }
+  if (!name && el instanceof HTMLImageElement) name = clean(el.alt);
+  if (!name && !(el instanceof HTMLSelectElement) && !(input && !['submit', 'button', 'reset'].includes(input.type))) name = clean((el as HTMLElement).innerText ?? el.textContent);
+  if (!name && input) name = clean(input.value);
+  const src = el.closest('[data-hai-src]')?.getAttribute('data-hai-src') ?? undefined;
+  const secret = !!input && (input.type === 'password' || /^cc-/.test(input.autocomplete));
+  return { role, name, src, secret };
+}

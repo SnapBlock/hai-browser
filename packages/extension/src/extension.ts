@@ -1,17 +1,29 @@
-import { isAbsolute, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import * as vscode from 'vscode';
 import type { AgentMethods, AgentRequest, PickedElement } from '@hai-browser/protocol';
 import { AgentServer } from './agentServer';
 import { BrowserBridge } from './browser';
+import { recordStep } from './recording';
+import { pickAndReplay } from './replayPanel';
+import { RunRecorder } from './runRecorder';
 import { agentSetups, connectClaude, installServer, offerClaudeConnect, registerVsCodeMcpServer, serverCommand } from './claudeSetup';
 
 export async function activate(context: vscode.ExtensionContext) {
   const bridge = new BrowserBridge();
   const log = vscode.window.createOutputChannel('H/Ai Browser', { log: true });
-  const server = new AgentServer(req => {
-    log.info(`agent → ${req.method}`);
-    return dispatch(bridge, req);
-  });
+  const recorder = new RunRecorder({ dir: join(context.globalStorageUri.fsPath, 'runs') });
+  const replayItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
+  replayItem.text = '$(history) Replay';
+  replayItem.tooltip = 'Replay an agent run step by step';
+  replayItem.command = 'haiBrowser.replayRun';
+  if (recorder.list().some(r => r.steps > 0)) replayItem.show();
+  const server = new AgentServer(
+    (req, connection) => {
+      log.info(`agent → ${req.method}`);
+      return recordStep(bridge, recorder, req, connection, () => dispatch(bridge, req), () => replayItem.show(), log);
+    },
+    connection => recorder.endConnection(connection),
+  );
 
   const folders = () => (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
   const port = await server.start(folders());
@@ -67,6 +79,14 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand('haiBrowser.stopSharing', () => bridge.stop()),
+    vscode.commands.registerCommand('haiBrowser.replayRun', () => pickAndReplay(recorder)),
+    vscode.commands.registerCommand('haiBrowser.clearRuns', async () => {
+      const ok = await vscode.window.showWarningMessage('Delete all recorded agent runs?', { modal: true }, 'Delete');
+      if (ok !== 'Delete') return;
+      recorder.clear();
+      replayItem.hide();
+    }),
+    replayItem,
     vscode.commands.registerCommand('haiBrowser.connectClaude', () => connectClaude(context, log)),
     vscode.commands.registerCommand('haiBrowser.showConnectionInfo', async () => {
       const setups = agentSetups(await serverCommand(await installServer(context)));

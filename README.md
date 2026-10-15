@@ -110,6 +110,17 @@ Then run **H/Ai: Pick Element and Open Source** (status bar **Pick** while a tab
 
 Agents read it with `browser_get_selection`, or call it with `wait: true` to ask you to pick something. Snapshots also show `src=file:line:col` next to each tagged element.
 
+## Replay an agent run
+
+H/Ai saves each agent run on your machine, step by step: the tool the agent called and its inputs, the element it acted on (with its source file when the Vite/Next plugin is on), where it clicked, a screenshot after the step, and the result or error.
+
+Run **H/Ai: Replay Agent Run** (or click **Replay** in the status bar) and pick a run. Step through it with ← →, press Space to play, or drag the slider. Click a step's source to open it in the editor. **Export HTML** saves the run as one file that opens in any browser, so you can attach it to a PR or send it to a reviewer.
+
+- One run per agent session; a new run starts after 10 minutes without activity. The last 20 runs are kept.
+- Runs stay on this machine (VS Code's extension storage). Nothing is uploaded.
+- Text typed into password and card fields is not saved.
+- Turn recording off with the `haiBrowser.recordRuns` setting, and delete saved runs with **H/Ai: Delete Recorded Agent Runs**.
+
 ## Tools
 
 | Tool | What it does |

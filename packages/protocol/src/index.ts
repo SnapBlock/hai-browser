@@ -52,6 +52,8 @@ export interface AgentRequest<M extends AgentMethod = AgentMethod> {
   id: number;
   method: M;
   params: AgentMethods[M]['params'];
+  /** The MCP client driving this connection, e.g. `claude-code`. Used to label run recordings. */
+  client?: { name: string; version?: string };
 }
 
 export type AgentResponse =
