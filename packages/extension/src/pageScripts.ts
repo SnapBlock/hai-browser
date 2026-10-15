@@ -464,12 +464,32 @@ export function moveCursor(fx: number, fy: number, x: number, y: number, ms: num
     arrow.setAttribute('stroke-width', '1.5');
     arrow.setAttribute('stroke-linejoin', 'round');
     svg.append(arrow);
-    const tag = document.createElement('span');
-    tag.textContent = 'H/Ai';
-    tag.style.cssText =
-      'all:initial;position:absolute;left:15px;top:19px;background:#7c3aed;color:#fff;' +
-      'font:600 10px/14px system-ui,sans-serif;padding:0 5px;border-radius:7px;white-space:nowrap';
-    c.append(svg, tag);
+    // A small face that rides with the arrow: its eyes look where the pointer is heading and blink now and then.
+    const face = document.createElement('span');
+    face.style.cssText =
+      'all:initial;position:absolute;left:14px;top:18px;display:flex;gap:3px;padding:4px 6px;background:#7c3aed;' +
+      'border-radius:11px;box-shadow:0 0 0 1.5px #fff,0 0 10px rgba(124,58,237,.55)';
+    for (let k = 0; k < 2; k++) {
+      const eye = document.createElement('span');
+      eye.setAttribute('data-hai-eye', '');
+      eye.style.cssText = 'all:initial;display:block;position:relative;width:10px;height:12px;border-radius:50%;background:#fff;overflow:hidden';
+      const pupil = document.createElement('span');
+      pupil.setAttribute('data-hai-pupil', '');
+      pupil.style.cssText =
+        'all:initial;display:block;position:absolute;left:2.5px;top:3.5px;width:5px;height:5px;border-radius:50%;' +
+        'background:#111827;transition:transform .25s ease-out';
+      eye.append(pupil);
+      face.append(eye);
+    }
+    c.append(svg, face);
+    const blink = () => {
+      if (!c?.isConnected) return;
+      c.querySelectorAll('[data-hai-eye]').forEach(e =>
+        e.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(.1)' }, { transform: 'scaleY(1)' }], { duration: 180 }),
+      );
+      setTimeout(blink, 2500 + Math.random() * 3500);
+    };
+    setTimeout(blink, 1500);
     c.style.transform = place(fx, fy);
     document.documentElement.append(c);
   }
@@ -478,6 +498,14 @@ export function moveCursor(fx: number, fy: number, x: number, y: number, ms: num
   void c.offsetWidth;
   if (ms > 0) c.style.transition = `transform ${ms}ms cubic-bezier(.3,.7,.4,1)`;
   c.style.transform = place(x, y);
+  // Look along the move, then settle back on the arrow's tip (up and to the left of the face).
+  const look = (lx: number, ly: number) =>
+    c!.querySelectorAll<HTMLElement>('[data-hai-pupil]').forEach(p => (p.style.transform = `translate(${lx}px,${ly}px)`));
+  const len = Math.hypot(x - fx, y - fy);
+  if (len > 1) look(((x - fx) / len) * 2.5, ((y - fy) / len) * 3);
+  const w = window as unknown as { __haiLook?: ReturnType<typeof setTimeout> };
+  clearTimeout(w.__haiLook);
+  w.__haiLook = setTimeout(() => look(-1.5, -2), Math.max(ms, 0) + 450);
   return true;
 }
 
@@ -579,12 +607,15 @@ export function cursorRipple(x: number, y: number): boolean {
     fill: 'forwards',
   });
   setTimeout(() => r.remove(), 600);
+  document.querySelectorAll('#__hai_cursor [data-hai-eye]').forEach(e =>
+    e.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(.35)' }, { transform: 'scaleY(1)' }], { duration: 320, easing: 'ease-out' }),
+  );
   return true;
 }
 
 export function setCursorVisible(visible: boolean): boolean {
   const c = document.getElementById('__hai_cursor');
-  // display, not visibility: the badge resets its own visibility with all:initial, so a hidden parent wouldn't hide it.
+  // display, not visibility: the face resets its own visibility with all:initial, so a hidden parent wouldn't hide it.
   if (c) c.style.display = visible ? '' : 'none';
   return true;
 }
