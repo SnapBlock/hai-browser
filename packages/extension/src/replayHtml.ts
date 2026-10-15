@@ -59,7 +59,7 @@ export function renderReplay(run: Run, opts: ReplayOptions): string {
   <section class="stage">
     <div class="frame">
       <div class="chrome"><span class="dots"><i></i><i></i><i></i></span><span id="url" class="url"></span></div>
-      <div id="shot" class="shot"><img id="img" alt=""><svg id="overlay" preserveAspectRatio="none"></svg><div id="noshot" class="noshot">No screenshot for this step</div></div>
+      <div id="shot" class="shot"><img id="img" alt=""><svg id="overlay" preserveAspectRatio="none"></svg><div id="cur" class="rcur" aria-hidden="true"><svg viewBox="0 0 20 24"><path d="M2 2v17.5l4.6-4.3 3.1 7 3.1-1.4-3-6.9h6.6z" fill="#111827" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="face"><span class="eye"><span class="pupil"></span></span><span class="eye"><span class="pupil"></span></span></span></div><div id="noshot" class="noshot">No screenshot for this step</div></div>
     </div>
     <div class="caption"><span id="badge" class="badge"></span><span id="label"></span></div>
     <div class="controls">
@@ -125,6 +125,12 @@ input[type=range]{flex:1;accent-color:var(--accent)}
 .card a{color:var(--accent2);text-decoration:none;cursor:pointer}.card a:hover{text-decoration:underline}
 .card.err{border-color:rgba(255,107,107,.4)}.card.err pre{color:var(--err)}
 details.read{grid-column:1/-1}details.read summary{cursor:pointer;color:var(--mute)}details.read pre{max-height:320px;overflow:auto;margin-top:8px}
+.rcur{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;display:none;line-height:normal;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}.rcur.on{display:block}
+.rcur svg{position:absolute;left:-2px;top:-2px;width:20px;height:24px;display:block}
+.rcur .face{position:absolute;left:12px;top:16px;display:flex;gap:3px;padding:4px 6px;background:#7c3aed;border-radius:11px;box-shadow:0 0 0 1.5px #fff,0 0 10px rgba(124,58,237,.55)}
+.rcur .eye{display:block;position:relative;width:10px;height:12px;border-radius:50%;background:#fff;overflow:hidden}
+.rcur .pupil{position:absolute;left:2.5px;top:3.5px;width:5px;height:5px;border-radius:50%;background:#111827;transition:transform .25s ease-out}
+.rip{position:absolute;width:28px;height:28px;margin:-14px 0 0 -14px;box-sizing:border-box;border-radius:50%;border:2px solid #7c3aed;background:rgba(124,58,237,.25);pointer-events:none}
 @keyframes ping{0%{r:6;opacity:.9}100%{r:26;opacity:0}}
 .ping{animation:ping 1s ease-out 2}
 @media (max-width:900px){main{grid-template-columns:1fr}aside{max-height:220px;border-right:0;border-bottom:1px solid var(--line)}}
@@ -162,9 +168,61 @@ function draw(s) {
   const sx = vp.width / ($('shot').clientWidth || vp.width);
   pts.forEach((p, k) => {
     if (k === pts.length - 1) o.append(svg('circle', { class: 'ping', cx: p.x, cy: p.y, r: 6 * sx, fill: 'none', stroke: '#7c5cff', 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke' }));
-    o.append(svg('circle', { cx: p.x, cy: p.y, r: 7 * sx, fill: '#7c5cff', stroke: '#fff', 'stroke-width': 2.5, 'vector-effect': 'non-scaling-stroke' }));
   });
 }
+// The agent's arrow and eyes, as they looked in the live page: each tab keeps its own pointer where the agent left it.
+const CLICKS = /click|drag|hover|mouse/;
+let glide = 0;
+function before(k, url) {
+  let p = null;
+  for (let n = 0; n < k; n++) {
+    const s = STEPS[n], pts = s.points || [];
+    if (pts.length && (s.from || s.url) === url) p = pts[pts.length - 1];
+  }
+  return p;
+}
+function look(dx, dy) { document.querySelectorAll('#cur .pupil').forEach(e => e.style.transform = 'translate(' + dx + 'px,' + dy + 'px)'); }
+function put(p, vp, ms) {
+  const c = $('cur'), ease = ms + 'ms cubic-bezier(.3,.7,.4,1)';
+  c.style.transition = ms > 0 ? 'left ' + ease + ',top ' + ease : 'none';
+  c.style.left = (p.x / vp.width * 100) + '%'; c.style.top = (p.y / vp.height * 100) + '%';
+}
+function ripple(p, vp) {
+  const r = el('div', 'rip'); r.style.left = (p.x / vp.width * 100) + '%'; r.style.top = (p.y / vp.height * 100) + '%';
+  $('shot').append(r);
+  r.animate([{ transform: 'scale(.3)', opacity: 1 }, { transform: 'scale(1.5)', opacity: 0 }], { duration: 500, easing: 'ease-out', fill: 'forwards' });
+  setTimeout(() => r.remove(), 600);
+  document.querySelectorAll('#cur .eye').forEach(e => e.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(.35)' }, { transform: 'scaleY(1)' }], { duration: 320, easing: 'ease-out' }));
+}
+function pointer(k, shown) {
+  clearTimeout(glide);
+  const c = $('cur'), s = STEPS[k], vp = shown && shown.viewport;
+  const own = shown === s && !s.from ? (s.points || []) : [];
+  const start = vp ? before(k, shown.url) : null;
+  c.classList.toggle('on', !!(vp && (own.length || start)));
+  if (!vp || (!own.length && !start)) return;
+  if (!own.length) { put(start, vp, 0); look(-1.5, -2); return; }
+  const path = start ? [start, ...own] : own;
+  put(path[0], vp, 0); void c.offsetWidth;
+  let n = 1;
+  const next = () => {
+    if (n >= path.length) {
+      if (CLICKS.test(s.tool)) ripple(path[path.length - 1], vp);
+      glide = setTimeout(() => look(-1.5, -2), 450);
+      return;
+    }
+    const a = path[n - 1], b = path[n], len = Math.hypot(b.x - a.x, b.y - a.y);
+    const ms = Math.round(Math.min(700, Math.max(250, len * 0.9)) / speed);
+    if (len > 1) look((b.x - a.x) / len * 2.5, (b.y - a.y) / len * 3);
+    put(b, vp, ms); n++;
+    glide = setTimeout(next, ms);
+  };
+  next();
+}
+(function blink() {
+  document.querySelectorAll('#cur .eye').forEach(e => e.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(.1)' }, { transform: 'scaleY(1)' }], { duration: 180 }));
+  setTimeout(blink, 2500 + Math.random() * 3500);
+})();
 // Fit the whole screenshot on screen: width follows the free height and the page's aspect ratio.
 function fit(s) {
   const vp = s && s.viewport; const f = document.querySelector('.frame');
@@ -189,6 +247,7 @@ function go(k) {
   if (img) $('img').src = img;
   fit(shown);
   if (shown === s) draw(s); else $('overlay').innerHTML = '';
+  pointer(i, img ? shown : null);
   $('badge').textContent = s.tool; $('badge').className = 'badge' + (s.error ? ' err' : '');
   $('label').textContent = s.label;
   const d = $('details'); d.innerHTML = '';
