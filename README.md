@@ -110,6 +110,17 @@ Then run **H/Ai: Pick Element and Open Source** (status bar **Pick** while a tab
 
 Agents read it with `browser_get_selection`, or call it with `wait: true` to ask you to pick something. Snapshots also show `src=file:line:col` next to each tagged element.
 
+## Replay an agent run
+
+H/Ai saves each agent run on your machine, step by step: the tool the agent called and its inputs, the element it acted on (with its source file when the Vite/Next plugin is on), where it clicked, a screenshot after the step, and the result or error.
+
+Run **H/Ai: Replay Agent Run** (or click **Replay** in the status bar) and pick a run. Step through it with ← →, press Space to play, or drag the slider. Click a step's source to open it in the editor. **Export HTML** saves the run as one file that opens in any browser, so you can attach it to a PR or send it to a reviewer.
+
+- One run per agent session; a new run starts after 10 minutes without activity. The last 20 runs are kept.
+- Runs stay on this machine (VS Code's extension storage). Nothing is uploaded.
+- Text typed into password and card fields is not saved.
+- Turn recording off with the `haiBrowser.recordRuns` setting, and delete saved runs with **H/Ai: Delete Recorded Agent Runs**.
+
 ## Tools
 
 | Tool | What it does |
@@ -137,7 +148,7 @@ Agents read it with `browser_get_selection`, or call it with `wait: true` to ask
 | `browser_evaluate` | Run JavaScript in the page. **Off by default**; enable `haiBrowser.allowEvaluate` |
 | `browser_get_selection` | The element you picked: source `file:line:col`, selector, text, HTML, key styles, a ref, and a screenshot. `wait: true` asks you to pick one now (waits up to 5 minutes) |
 
-Every action (`click`, `hover`, `scroll`, `drag`, `type`, `press_key`, `select_option`, `upload_file`, `handle_dialog`, `wait_for`) returns the page snapshot afterwards, like a computer-use agent seeing the screen after each step. Pass `screenshot: true` to also get an image, or `snapshot: false` to skip the outline. While the agent works, a purple **H/Ai** pointer glides to each spot it clicks, hovers, drags or types into, with a ripple on each click, so you can follow along. It never receives events, is left out of snapshots and is hidden from the agent's screenshots; turn it off with `haiBrowser.showAgentCursor`. If an action opens a JavaScript dialog, the result says so and other tools refuse to run until `browser_handle_dialog` handles it.
+Every action (`click`, `hover`, `scroll`, `drag`, `type`, `press_key`, `select_option`, `upload_file`, `handle_dialog`, `wait_for`) returns the page snapshot afterwards, like a computer-use agent seeing the screen after each step. Pass `screenshot: true` to also get an image, or `snapshot: false` to skip the outline. While the agent works, its pointer glides to each spot it clicks, hovers, drags or types into, with a ripple on each click, so you can follow along. A small purple face rides with it: its eyes look where the pointer is heading, blink now and then, and squint on each click. It never receives events, is left out of snapshots and is hidden from the agent's screenshots; turn it off with `haiBrowser.showAgentCursor`. If an action opens a JavaScript dialog, the result says so and other tools refuse to run until `browser_handle_dialog` handles it.
 
 Tabs are the ones shared with agents (opened by `browser_open`/`browser_tab_new`, or shared by you). VS Code's browser-tab API is still proposed, so agents can't see or switch to your other tabs until you share them.
 

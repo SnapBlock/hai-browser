@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { AUTH_HEADER, lockDir, type AgentRequest, type AgentResponse, type Lockfile } from '@hai-browser/protocol';
 
-export type Handler = (req: AgentRequest) => Promise<unknown>;
+export type Handler = (req: AgentRequest, connection: string) => Promise<unknown>;
 
 /**
  * Localhost WebSocket endpoint that `hai-browser-mcp` connects to. Discovery is a
@@ -17,7 +17,12 @@ export class AgentServer {
   private readonly lockPath = join(lockDir(), `${process.pid}.json`);
   private wss?: WebSocketServer;
 
-  constructor(private readonly handle: Handler) {}
+  private connections = 0;
+
+  constructor(
+    private readonly handle: Handler,
+    private readonly onClose?: (connection: string) => void,
+  ) {}
 
   async start(workspaceFolders: string[]): Promise<number> {
     const wss = new WebSocketServer({
@@ -56,6 +61,8 @@ export class AgentServer {
   }
 
   private onConnection(ws: WebSocket) {
+    const connection = `c${++this.connections}`;
+    ws.on('close', () => this.onClose?.(connection));
     ws.on('message', async raw => {
       let req: AgentRequest;
       try {
@@ -65,7 +72,7 @@ export class AgentServer {
       }
       let res: AgentResponse;
       try {
-        res = { id: req.id, result: await this.handle(req) };
+        res = { id: req.id, result: await this.handle(req, connection) };
       } catch (e) {
         res = { id: req.id, error: { message: e instanceof Error ? e.message : String(e) } };
       }

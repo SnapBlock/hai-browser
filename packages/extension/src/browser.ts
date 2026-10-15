@@ -26,6 +26,7 @@ import {
 import { CdpClient } from './cdp';
 import {
   cursorRipple,
+  describeRef,
   drawRefMarks,
   highlightBox,
   moveCursor,
@@ -49,6 +50,7 @@ import {
   type TextMatch,
   type Viewport,
 } from './pageScripts';
+import type { RefInfo } from './pageScripts';
 
 const SESSION_NAME = 'H/Ai (shared browser)';
 const PAGE_SESSION_TYPE = 'pwa-editor-browser';
@@ -245,6 +247,7 @@ interface LayoutMetrics {
 export class BrowserBridge implements vscode.Disposable {
   private readonly tabs = new Map<string, BrowserTab>();
   private activeId?: string;
+  private trace: StepTrace = { points: [] };
   private nextTabId = 1;
   private connecting?: Promise<BrowserTab>;
   private readonly disposables: vscode.Disposable[] = [];
@@ -529,6 +532,40 @@ export class BrowserBridge implements vscode.Disposable {
     return this.evaluateIn<T>(this.requireTab(), expression);
   }
 
+  /** Start collecting where the next agent step lands, for run recordings. */
+  beginTrace() {
+    this.trace = { points: [] };
+  }
+
+  endTrace(): StepTrace {
+    const t = this.trace;
+    this.trace = { points: [] };
+    return t;
+  }
+
+  /** Role, name, source and whether it holds a secret, for the element behind a snapshot ref. */
+  async describeRef(ref: string): Promise<RefInfo | undefined> {
+    const tab = this.activeId ? this.tabs.get(this.activeId) : undefined;
+    if (!tab || tab.isClosed) return undefined;
+    return this.evaluateOnce<RefInfo | null>(tab, invoke(describeRef, ref)).then(
+      r => r ?? undefined,
+      () => undefined,
+    );
+  }
+
+  /** The current tab's URL and title, without touching the page. */
+  pageInfo(): { url: string; title: string } | undefined {
+    const tab = this.activeId ? this.tabs.get(this.activeId) : undefined;
+    return tab && !tab.isClosed ? { url: tab.url, title: tab.title } : undefined;
+  }
+
+  /** A small viewport JPEG for the run recording, or nothing if the page can't be captured right now. */
+  async traceShot(): Promise<ScreenshotResult | undefined> {
+    const tab = this.activeId ? this.tabs.get(this.activeId) : undefined;
+    if (!tab || tab.isClosed || tab.dialog) return undefined;
+    return this.capture(tab, { jpeg: true }).catch(() => undefined);
+  }
+
   get lastSelection(): PickedElement | undefined {
     return this.selection;
   }
@@ -773,8 +810,11 @@ export class BrowserBridge implements vscode.Disposable {
     return metrics?.cssVisualViewport?.zoom ?? 1;
   }
 
-  private async capture(tab: BrowserTab, p: { ref?: string; fullPage?: boolean; annotate?: boolean }): Promise<ScreenshotResult> {
-    const params: Record<string, unknown> = { format: 'png' };
+  private async capture(
+    tab: BrowserTab,
+    p: { ref?: string; fullPage?: boolean; annotate?: boolean; jpeg?: boolean },
+  ): Promise<ScreenshotResult> {
+    const params: Record<string, unknown> = p.jpeg ? { format: 'jpeg', quality: 70 } : { format: 'png' };
     let width: number | undefined;
     let height: number | undefined;
     let snapshot: string | undefined;
@@ -813,7 +853,7 @@ export class BrowserBridge implements vscode.Disposable {
       }
       let { data } = await tab.guard(tab.send<{ data: string }>('Page.captureScreenshot', params));
       if (boxes?.length) data = await this.evaluateOnce<string>(tab, invoke(drawRefMarks, data, boxes)).catch(() => data);
-      return { mimeType: 'image/png', data, width: width && Math.round(width), height: height && Math.round(height), snapshot };
+      return { mimeType: p.jpeg ? ('image/jpeg' as 'image/png') : 'image/png', data, width: width && Math.round(width), height: height && Math.round(height), snapshot };
     } finally {
       if (restoreScroll) await this.evaluateOnce(tab, `scrollTo(0, ${restoreScroll})`).catch(() => {});
       await this.evaluateOnce(tab, invoke(setCursorVisible, true)).catch(() => {});
@@ -826,6 +866,7 @@ export class BrowserBridge implements vscode.Disposable {
 
   /** Glide the visible agent cursor to where the next input lands, so the human can follow along. */
   private async glide(tab: BrowserTab, to: { x: number; y: number }) {
+    this.trace.points.push({ x: Math.round(to.x), y: Math.round(to.y) });
     if (!this.showCursor()) return;
     const from = tab.cursor ?? { x: to.x + 80, y: to.y + 60 };
     const ms = Math.round(Math.min(CURSOR_MAX_MS, Math.max(CURSOR_MIN_MS, Math.hypot(to.x - from.x, to.y - from.y) * 1.2)));
@@ -839,11 +880,13 @@ export class BrowserBridge implements vscode.Disposable {
 
   /** Resolve a target and glide the cursor there. Refs are re-measured after the glide in case the layout moved. */
   private async aim(tab: BrowserTab, target: PointTarget): Promise<{ x: number; y: number }> {
+    const mark = this.trace.points.length;
     const first = await this.point(tab, target);
     await this.glide(tab, first);
     if (!target.ref || !this.showCursor()) return first;
     const at = await this.point(tab, target);
     if (Math.hypot(at.x - first.x, at.y - first.y) > 1) await this.glide(tab, at);
+    this.trace.points.splice(mark, Infinity, { x: Math.round(at.x), y: Math.round(at.y) });
     return at;
   }
 
@@ -851,6 +894,7 @@ export class BrowserBridge implements vscode.Disposable {
     const found = await this.evaluateIn<TextMatch | { error: string }>(tab, invoke(revealText, p.text ?? null, p.ref ?? null));
     if ('error' in found) throw new Error(found.error);
     const { x, y, width, height } = found.box;
+    this.trace.box = { x, y, width, height };
     await this.glide(tab, { x: x + width / 2, y: y + height + 2 });
     const lit = await this.evaluateOnce(tab, invoke(highlightBox, x, y, width, height, p.label ?? '', SHOW_MS)).then(
       () => true,
@@ -898,6 +942,7 @@ export class BrowserBridge implements vscode.Disposable {
   private async locate(tab: BrowserTab, ref: string, focus: boolean, clear = false): Promise<ElementBox> {
     const box = await this.evaluateIn<ElementBox | { error: string }>(tab, invoke(locateRef, ref, focus, clear));
     if ('error' in box) throw new Error(box.error);
+    this.trace.box = { x: box.x, y: box.y, width: box.width, height: box.height };
     return box;
   }
 
@@ -994,8 +1039,13 @@ async function toPickedElement(info: PageElementInfo): Promise<PickedElement> {
   return { ...rest, source, pickedAt: Date.now() };
 }
 
+export interface StepTrace {
+  points: { x: number; y: number }[];
+  box?: { x: number; y: number; width: number; height: number };
+}
+
 /** Map a `data-hai-src` path to a file on disk: absolute, dev-server root, workspace folders, then a search. */
-async function resolveSource(src: string, srcRoot?: string): Promise<SourceLocation | undefined> {
+export async function resolveSource(src: string, srcRoot?: string): Promise<SourceLocation | undefined> {
   const loc = parseSourceTag(src);
   if (!loc) return undefined;
   const candidates = isAbsolute(loc.path) ? [loc.path] : [];

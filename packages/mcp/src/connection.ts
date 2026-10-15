@@ -61,6 +61,8 @@ export class ExtensionConnection {
   private ws?: WebSocket;
   private nextId = 1;
   private readonly pending = new Map<number, (res: AgentResponse) => void>();
+  /** Sent with each request so recordings can say which agent ran. */
+  client?: { name: string; version?: string };
 
   constructor(private readonly cwd: string = process.cwd()) {}
 
@@ -69,7 +71,7 @@ export class ExtensionConnection {
     const id = this.nextId++;
     const res = await new Promise<AgentResponse>((resolve, reject) => {
       this.pending.set(id, resolve);
-      ws.send(JSON.stringify({ id, method, params }), err => err && reject(err));
+      ws.send(JSON.stringify({ id, method, params, client: this.client }), err => err && reject(err));
     });
     if ('error' in res) throw new Error(res.error.message);
     return res.result as AgentMethods[M]['result'];
