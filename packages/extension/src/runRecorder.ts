@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The element an action targeted, described before the action ran. */
@@ -183,6 +183,10 @@ export function describeStep(step: RunStep): string {
 export interface RecorderOptions {
   dir: string;
   keepRuns?: number;
+  /** Runs that ended longer ago than this are deleted. */
+  keepDays?: number;
+  /** Oldest runs are deleted once all runs together take more than this. */
+  maxBytes?: number;
   idleMs?: number;
   now?: () => number;
 }
@@ -190,14 +194,19 @@ export interface RecorderOptions {
 /** Saves agent steps to `<dir>/<runId>/run.json` plus one JPEG per step. One run per agent connection. */
 export class RunRecorder {
   private readonly keepRuns: number;
+  private readonly keepMs: number;
+  private readonly maxBytes: number;
   private readonly idleMs: number;
   private readonly now: () => number;
   private readonly active = new Map<string, Run>();
 
   constructor(private readonly opts: RecorderOptions) {
     this.keepRuns = opts.keepRuns ?? 20;
+    this.keepMs = (opts.keepDays ?? 7) * 86_400_000;
+    this.maxBytes = opts.maxBytes ?? 200 * 1024 * 1024;
     this.idleMs = opts.idleMs ?? 10 * 60_000;
     this.now = opts.now ?? Date.now;
+    this.prune();
   }
 
   /** The run a new step from this connection belongs to; starts one after a long pause. */
@@ -272,9 +281,36 @@ export class RunRecorder {
     }
   }
 
+  /** Keeps the newest runs within the count, age and size limits. Runs still recording are never deleted. */
   private prune() {
     const live = new Set([...this.active.values()].map(r => r.id));
-    const ids = this.ids().sort().reverse();
-    for (const id of ids.slice(this.keepRuns)) if (!live.has(id)) rmSync(join(this.opts.dir, id), { recursive: true, force: true });
+    const now = this.now();
+    let total = 0;
+    let kept = 0;
+    for (const id of this.ids().sort().reverse()) {
+      const dir = join(this.opts.dir, id);
+      const size = sizeOf(dir);
+      const old = now - (this.load(id)?.endedAt ?? mtime(dir)) > this.keepMs;
+      if (live.has(id) || (kept < this.keepRuns && !old && total + size <= this.maxBytes)) {
+        total += size;
+        kept++;
+      } else rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}
+
+function sizeOf(dir: string): number {
+  try {
+    return readdirSync(dir).reduce((n, f) => n + statSync(join(dir, f)).size, 0);
+  } catch {
+    return 0;
+  }
+}
+
+function mtime(path: string): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
   }
 }

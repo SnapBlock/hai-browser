@@ -116,7 +116,7 @@ H/Ai saves each agent run on your machine, step by step: the tool the agent call
 
 Run **H/Ai: Replay Agent Run** (or click **Replay** in the status bar) and pick a run. Step through it with ← →, press Space to play, or drag the slider. Click a step's source to open it in the editor. **Export HTML** saves the run as one file that opens in any browser, so you can attach it to a PR or send it to a reviewer.
 
-- One run per agent session; a new run starts after 10 minutes without activity. The last 20 runs are kept.
+- One run per agent session; a new run starts after 10 minutes without activity. Runs are deleted automatically after 7 days, and only the newest 20 are kept, up to 200 MB in total.
 - Runs stay on this machine (VS Code's extension storage). Nothing is uploaded.
 - Text typed into password and card fields is not saved.
 - Turn recording off with the `haiBrowser.recordRuns` setting, and delete saved runs with **H/Ai: Delete Recorded Agent Runs**.

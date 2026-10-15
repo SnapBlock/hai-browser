@@ -75,6 +75,36 @@ describe('RunRecorder', () => {
     expect(readdirSync(dir).length).toBe(2);
   });
 
+  it('deletes runs older than keepDays, also when VS Code starts', () => {
+    let now = 0;
+    const dir = tmp();
+    const rec = new RunRecorder({ dir, keepDays: 7, now: () => now });
+    rec.addStep(rec.runFor('c1'), step({ startedAt: 0 }));
+    rec.endConnection('c1');
+    now = 6 * 86_400_000;
+    expect(new RunRecorder({ dir, keepDays: 7, now: () => now }).list()).toHaveLength(1);
+    now = 8 * 86_400_000;
+    expect(new RunRecorder({ dir, keepDays: 7, now: () => now }).list()).toHaveLength(0);
+  });
+
+  it('deletes the oldest runs once they take more than maxBytes', () => {
+    let now = 0;
+    const dir = tmp();
+    const rec = new RunRecorder({ dir, maxBytes: 5000, now: () => now });
+    const jpeg = Buffer.alloc(2000).toString('base64');
+    for (let i = 0; i < 3; i++) {
+      now = i * 1000;
+      rec.addStep(rec.runFor(`c${i}`), step({ startedAt: now }), jpeg);
+      rec.endConnection(`c${i}`);
+    }
+    now = 9000;
+    const last = rec.runFor('last');
+    const ids = readdirSync(dir).sort();
+    expect(ids).toHaveLength(3);
+    expect(ids).toContain(last.id);
+    expect(rec.list().map(r => r.startedAt)).toEqual([2000, 1000]);
+  });
+
   it('refuses ids that could escape the runs folder', () => {
     expect(new RunRecorder({ dir: tmp() }).load('../../etc')).toBeUndefined();
   });
