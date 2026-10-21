@@ -91,10 +91,16 @@ export class ActionGuard {
       const u = new URL(url);
       // Following a link it read is browsing; building an address out of what it read is how pages leak.
       const from = this.carriedFrom(connection, site, decodeURIComponentSafe(u.search + u.hash), [url, u.pathname + u.search]);
-      return this.ask(connection, site, from && {
-        action: `open ${quote(url, 80)}`,
-        why: `The address contains text it read on ${from}. A page can trick an agent into sending what it read to another site.`,
-      });
+      return this.ask(
+        connection,
+        site,
+        from
+          ? {
+              action: `open ${quote(url, 80)}`,
+              why: `The address contains text it read on ${from}. A page can trick an agent into sending what it read to another site.`,
+            }
+          : undefined,
+      );
     }
     const site = siteOf(req.url);
     if (!site) return undefined;
