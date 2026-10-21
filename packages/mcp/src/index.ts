@@ -14,6 +14,7 @@ const INSTRUCTIONS = [
   'Use these tools (not WebFetch, curl, or other browser tools) whenever the user asks to open, visit, look at, click through, test, fill in, screenshot, or debug a web page or a local dev server, or mentions "the browser" or "the page".',
   'Start with browser_open (or browser_tabs to see what is already open), then browser_snapshot to read the page and act on its refs.',
   'The user cannot see what you read from snapshots: before you use something you read on the page (a verification code, a link, a price, an error), call browser_show on it so they can see it.',
+  'Some actions on websites (typing secrets, submitting, sending text read on one site to another) wait for the user to allow them. If the user stops one, do not retry it or work around it: say what you were about to do and ask.',
   UNTRUSTED,
 ].join(' ');
 

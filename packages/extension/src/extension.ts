@@ -3,7 +3,9 @@ import * as vscode from 'vscode';
 import type { AgentMethods, AgentRequest, PickedElement } from '@hai-browser/protocol';
 import { AgentServer } from './agentServer';
 import { BrowserBridge } from './browser';
+import { ActionGuard, type Risk } from './guard';
 import { recordStep } from './recording';
+import { agentName } from './replayHtml';
 import { pickAndReplay } from './replayPanel';
 import { RunRecorder } from './runRecorder';
 import { agentSetups, connectClaude, installServer, offerClaudeConnect, registerVsCodeMcpServer, serverCommand } from './claudeSetup';
@@ -17,12 +19,16 @@ export async function activate(context: vscode.ExtensionContext) {
   replayItem.tooltip = 'Replay an agent run step by step';
   replayItem.command = 'haiBrowser.replayRun';
   if (recorder.list().some(r => r.steps > 0)) replayItem.show();
+  const guard = new ActionGuard();
   const server = new AgentServer(
     (req, connection) => {
       log.info(`agent → ${req.method}`);
-      return recordStep(bridge, recorder, req, connection, () => dispatch(bridge, req), () => replayItem.show(), log);
+      return recordStep(bridge, recorder, req, connection, () => guarded(bridge, guard, req, connection), () => replayItem.show(), log);
     },
-    connection => recorder.endConnection(connection),
+    connection => {
+      recorder.endConnection(connection);
+      guard.end(connection);
+    },
   );
 
   const folders = () => (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
@@ -129,6 +135,40 @@ async function openSource(el: PickedElement, log: vscode.LogOutputChannel) {
     selection: new vscode.Range(pos, pos),
     preview: true,
   });
+}
+
+/** Run a request, first asking the user about risky actions, and remember what the agent read. */
+async function guarded(bridge: BrowserBridge, guard: ActionGuard, req: AgentRequest, connection: string): Promise<unknown> {
+  if (vscode.workspace.getConfiguration('haiBrowser').get<boolean>('confirmActions', true)) {
+    const params = (req.params ?? {}) as Record<string, any>;
+    const ref = typeof params.ref === 'string' ? params.ref : undefined;
+    const target = ref ? await bridge.describeRef(ref) : undefined;
+    const risk = guard.check(connection, { method: req.method, params, url: bridge.pageInfo()?.url, target });
+    if (risk) await confirm(risk, guard, connection, req.client?.name);
+  }
+  const result = (await dispatch(bridge, req)) as { url?: string; tree?: unknown; snapshot?: unknown } | undefined;
+  const read = typeof result?.tree === 'string' ? result.tree : typeof result?.snapshot === 'string' ? result.snapshot : undefined;
+  if (read) guard.noteRead(connection, result?.url, read);
+  return result;
+}
+
+async function confirm(risk: Risk, guard: ActionGuard, connection: string, client?: string) {
+  const once: vscode.MessageItem = { title: 'Allow once' };
+  const site: vscode.MessageItem = { title: 'Allow on this site' };
+  const stop: vscode.MessageItem = { title: 'Stop', isCloseAffordance: true };
+  const pick = await vscode.window.showWarningMessage(
+    `${agentName(client)} wants to ${risk.action}.`,
+    { modal: true, detail: `${risk.why}\n\n"Allow on this site" won't ask again on ${risk.site} until the agent disconnects.` },
+    once,
+    site,
+    stop,
+  );
+  if (pick === site) guard.allow(connection, risk.site);
+  else if (pick !== once) {
+    throw new Error(
+      `The user stopped this action (${risk.action}). Don't retry it or find another way to do it: tell the user what you were about to do and why, and ask how to continue.`,
+    );
+  }
 }
 
 async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unknown> {
