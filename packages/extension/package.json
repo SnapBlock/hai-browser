@@ -39,6 +39,11 @@
           "default": false,
           "markdownDescription": "Allow agents to run arbitrary JavaScript in the shared page (`browser_evaluate`)."
         },
+        "haiBrowser.confirmActions": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Ask before an agent does something risky on a website: typing into a password, key, code or card field, submitting a form, sending text it read on one site to another, or acting on a page that seems to give it orders. Choose **Allow once**, **Allow on this site** or **Stop**. Pages on `localhost` never ask."
+        },
         "haiBrowser.recordRuns": {
           "type": "boolean",
           "default": true,

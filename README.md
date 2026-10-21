@@ -176,6 +176,8 @@ Tabs are the ones shared with agents (opened by `browser_open`/`browser_tab_new`
 - Snapshots and picked-element HTML never include password values or `autocomplete="cc-*"` fields.
 - Arbitrary JavaScript (`browser_evaluate`) is disabled unless you turn it on.
 - Page content is untrusted: a web page can contain text written to manipulate an agent (prompt injection). Share tabs you trust, and prefer a separate profile for anything sensitive.
+- Before a risky action on a website, H/Ai asks you: typing into a password, API key, code or card field; submitting a form; typing (or putting in an address) text the agent read on a different site; or acting on a page with text that looks like orders for an AI. Choose **Allow once**, **Allow on this site** (no more questions there until the agent disconnects) or **Stop**. Reading and browsing never ask, and neither do pages on `localhost`. Turn it off with `haiBrowser.confirmActions`.
+- When an agent signs up for things or reads codes from email, give it a throwaway inbox (the demos use Poof), not your own.
 - The status bar shows **H/Ai: sharing** whenever a tab is shared; click it to stop.
 
 ## Development
