@@ -16,7 +16,7 @@ export interface GuardRequest {
   target?: RefInfo;
 }
 
-const SECRET_FIELD = /pass(word|code|phrase)?\b|api[\s_-]?key|secret|token|\botp\b|one[\s-]time|verification code|security code|auth(entication)? code|\b2fa\b|card|cvv|cvc|\biban\b|ssn|social security/i;
+export const SECRET_FIELD = /pass(word|code|phrase)?\b|api[\s_-]?key|secret|token|\botp\b|one[\s-]time|verification code|security code|auth(entication)? code|\b2fa\b|card|cvv|cvc|\biban\b|ssn|social security/i;
 const SUBMIT_BUTTON =
   /^(submit|send|sign\s?up|register|create (an )?account|pay|buy|purchase|place (the )?order|check\s?out|confirm|delete|remove|publish|post|transfer|subscribe|apply|book|donate)\b/i;
 const INSTRUCTIONS =

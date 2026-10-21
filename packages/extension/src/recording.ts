@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ActionResult, AgentRequest, SnapshotResult } from '@hai-browser/protocol';
 import type { BrowserBridge } from './browser';
+import { SECRET_FIELD } from './guard';
 import { NO_SCREENSHOT, RunRecorder, TOOL_NAMES, cleanParams, type StepTarget } from './runRecorder';
 
 /** Methods whose whole point is a new page: their step isn't marked as leaving one. */
@@ -40,7 +41,8 @@ export async function recordStep(
     const r = (result ?? {}) as Partial<ActionResult & SnapshotResult>;
     const page = typeof r.url === 'string' ? { url: r.url, title: r.title ?? '' } : bridge.pageInfo();
     // If the field couldn't be checked, don't keep what was typed into it.
-    const secret = info ? info.secret : method === 'type' || method === 'dialog';
+    const secret = info ? info.secret || SECRET_FIELD.test(info.name ?? '') : method === 'type' || method === 'dialog';
+    const typed = method === 'type' ? p.text : method === 'dialog' ? p.promptText : undefined;
     const target: StepTarget | undefined = ref ? { ref, role: info?.role, name: info?.name, src: info?.src } : undefined;
     recorder.addStep(
       recorder.runFor(connection, req.client?.name),
@@ -62,6 +64,7 @@ export async function recordStep(
         viewport: shot?.width && shot.height ? { width: shot.width, height: shot.height } : undefined,
       },
       shot?.data,
+      secret && typeof typed === 'string' ? typed : undefined,
     );
     onSaved();
   } catch (e) {
