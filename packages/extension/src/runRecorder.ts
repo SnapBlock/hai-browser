@@ -106,6 +106,24 @@ export function cleanParams(method: string, params: unknown, secret = false): Re
   return out;
 }
 
+/** Strings shaped like API keys and tokens: known prefixes, JWTs, or 32+ letters and digits in mixed case. */
+const KEY_LIKE =
+  /\b(?:[sprk]k[-_][\w-]{16,}|live_[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[\w-]{30,}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}|(?=\w*\d)(?=\w*[a-z])(?=\w*[A-Z])\w{32,})/g;
+
+/** Mask key-like strings, and any of `known` (values typed into secret fields), in text. */
+export function hideKeys(text: string, known: Iterable<string> = []): string {
+  let out = text;
+  for (const k of known) if (k.length >= 6) out = out.split(k).join(MASK);
+  return out.replace(KEY_LIKE, MASK);
+}
+
+const hideAll = <T>(value: T, known: Set<string>): T => {
+  if (typeof value === 'string') return hideKeys(value, known) as T;
+  if (Array.isArray(value)) return value.map(v => hideAll(v, known)) as T;
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, hideAll(v, known)])) as T;
+  return value;
+};
+
 const quote = (s: string, max = 60) => `"${s.length > max ? s.slice(0, max - 1) + '…' : s}"`;
 const targetLabel = (step: RunStep) => {
   const t = step.target;
@@ -199,6 +217,8 @@ export class RunRecorder {
   private readonly idleMs: number;
   private readonly now: () => number;
   private readonly active = new Map<string, Run>();
+  /** Values typed into secret fields in each run, hidden wherever they show up later. Never saved. */
+  private readonly secrets = new WeakMap<Run, Set<string>>();
 
   constructor(private readonly opts: RecorderOptions) {
     this.keepRuns = opts.keepRuns ?? 20;
@@ -225,9 +245,13 @@ export class RunRecorder {
     return run;
   }
 
-  addStep(run: Run, step: Omit<RunStep, 'seq' | 'screenshot'>, jpegBase64?: string) {
+  /** Save a step. `secret` is a value just typed into a secret field: it's hidden in this and later steps. */
+  addStep(run: Run, step: Omit<RunStep, 'seq' | 'screenshot'>, jpegBase64?: string, secret?: string) {
     const seq = run.stepList.length + 1;
-    const full: RunStep = { ...step, seq };
+    let known = this.secrets.get(run);
+    if (!known) this.secrets.set(run, (known = new Set()));
+    if (secret) known.add(secret);
+    const full: RunStep = { ...hideAll(step, known), seq };
     if (full.read && full.read.length > MAX_READ_CHARS) full.read = full.read.slice(0, MAX_READ_CHARS) + '\n…';
     if (jpegBase64) {
       full.screenshot = `step-${String(seq).padStart(4, '0')}.jpg`;

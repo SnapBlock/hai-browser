@@ -118,7 +118,7 @@ Run **H/Ai: Replay Agent Run** (or click **Replay** in the status bar) and pick 
 
 - One run per agent session; a new run starts after 10 minutes without activity. Runs are deleted automatically after 7 days, and only the newest 20 are kept, up to 200 MB in total.
 - Runs stay on this machine (VS Code's extension storage). Nothing is uploaded.
-- Text typed into password and card fields is not saved.
+- Text typed into password, API key, code and card fields is not saved, and that text is hidden wherever it shows up later in the run. Anything shaped like an API key or token (`sk-…`, `live_…`, `ghp_…`, JWTs and similar) is hidden in the saved steps too. Screenshots are saved as they were, so a key shown on the page is still visible in them.
 - Turn recording off with the `haiBrowser.recordRuns` setting, and delete saved runs with **H/Ai: Delete Recorded Agent Runs**.
 
 ## Tools

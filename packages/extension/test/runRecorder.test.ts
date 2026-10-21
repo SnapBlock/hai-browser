@@ -2,7 +2,8 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MASK, RunRecorder, cleanParams, describeStep, type RunStep } from '../src/runRecorder';
+import { readFileSync } from 'node:fs';
+import { MASK, RunRecorder, cleanParams, describeStep, hideKeys, type RunStep } from '../src/runRecorder';
 import { agentName, renderReplay } from '../src/replayHtml';
 
 const dirs: string[] = [];
@@ -33,6 +34,23 @@ describe('cleanParams', () => {
   });
 });
 
+describe('hideKeys', () => {
+  const cat = 'live_nA4eSUfzThS8PFpRH0x3lwXDbd98iX7XvkhtTv8V';
+  it('masks strings shaped like keys and tokens', () => {
+    expect(hideKeys(`Your API Key ${cat} keep it safe`)).toBe(`Your API Key ${MASK} keep it safe`);
+    expect(hideKeys("-H 'x-api-key: sk-proj-abcDEF1234567890abcdef'")).toBe(`-H 'x-api-key: ${MASK}'`);
+    expect(hideKeys('Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U')).toBe(`Bearer ${MASK}`);
+    expect(hideKeys('token Zq8Lm2Np4Rs6Tu8Vw0Xy2Za4Bc6De8Fg0Hi')).toBe(`token ${MASK}`);
+  });
+  it('keeps ordinary text, ids and hashes', () => {
+    const text = 'BreedsController_listBreedsByCountry e784db3c262d085f459bb9ec78e8b3b216222a3f 1f0e3dad-9990-4f4e-8e1a-2c7b3a1d5e6f a@b.co task-runner';
+    expect(hideKeys(text)).toBe(text);
+  });
+  it('masks known values anywhere', () => {
+    expect(hideKeys('pass is hunter22, yes hunter22', ['hunter22'])).toBe(`pass is ${MASK}, yes ${MASK}`);
+  });
+});
+
 describe('describeStep', () => {
   it('names the element acted on', () => {
     expect(describeStep({ ...step({ target: { ref: 'e5', role: 'button', name: 'Choose Pro' } }), seq: 1 })).toBe('Click button "Choose Pro"');
@@ -45,6 +63,15 @@ describe('describeStep', () => {
 });
 
 describe('RunRecorder', () => {
+  it('hides a typed secret in later steps and never saves it', () => {
+    const rec = new RunRecorder({ dir: tmp() });
+    const run = rec.runFor('c1');
+    rec.addStep(run, step({ method: 'type', params: { ref: 'e2', text: MASK } }), undefined, 'hunter22');
+    rec.addStep(run, step({ method: 'snapshot', read: '- textbox "Password": hunter22', url: 'https://x.test/?k=hunter22' }));
+    const saved = rec.load(run.id)!;
+    expect(saved.stepList[1]).toMatchObject({ read: `- textbox "Password": ${MASK}`, url: `https://x.test/?k=${MASK}` });
+    expect(readFileSync(join(run.dir, 'run.json'), 'utf8')).not.toContain('hunter22');
+  });
   it('groups steps per connection and starts a new run after a long pause', () => {
     let now = 0;
     const rec = new RunRecorder({ dir: tmp(), idleMs: 1000, now: () => now });
