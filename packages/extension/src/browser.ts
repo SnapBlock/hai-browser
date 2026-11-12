@@ -32,6 +32,7 @@ import {
   highlightBox,
   moveCursor,
   nextFrame,
+  changesSeen,
   setCursorVisible,
   invoke,
   locateRef,
@@ -44,6 +45,7 @@ import {
   startPicker,
   stopPicker,
   viewportInfo,
+  watchChanges,
   type ElementBox,
   type PageElementInfo,
   type PickState,
@@ -66,6 +68,10 @@ const CURSOR_MAX_MS = 550;
 /** How long a highlight from `show` stays up. */
 const SHOW_MS = 1200;
 const DRAG_STEP_MS = 16;
+/** Pause between typing and the Enter that submits it. */
+const ENTER_AFTER_TYPING_MS = 150;
+/** How long after Enter the page may take to react before the agent is told nothing happened. */
+const UNCHANGED_WAIT_MS = 1500;
 
 const debugOptions: vscode.DebugSessionOptions = {
   suppressDebugToolbar: true,
@@ -73,6 +79,12 @@ const debugOptions: vscode.DebugSessionOptions = {
   suppressDebugView: true,
   suppressSaveBeforeStart: true,
 };
+
+/** The page as it was just before a key press, to tell whether the key did anything. */
+interface PageWatch {
+  key: string;
+  url: string;
+}
 
 interface CdpProxyAddress {
   host: string;
@@ -111,6 +123,8 @@ class BrowserTab implements vscode.Disposable {
   editorTab?: vscode.Tab;
   /** VS Code's id for the browser view, from CDP target info; it addresses the editor as `vscode-browser:/<id>`. */
   viewId?: string;
+  /** The agent connection that opened this tab; unset for tabs the user shared. */
+  openedBy?: string;
   url = '';
   title = '';
 
@@ -303,14 +317,14 @@ export class BrowserBridge implements vscode.Disposable {
   }
 
   /** Navigate the active tab; with no shared tab, reuse an open tab showing `url` or open a new one. */
-  async open(url: string): Promise<StatusResult> {
+  async open(url: string, by?: string): Promise<StatusResult> {
     if (this.activeTab) return this.navigate({ url });
-    if (!(await this.attachExisting(url))) await this.launch(url);
+    if (!(await this.attachExisting(url))) await this.launch(url, by);
     return this.status();
   }
 
-  async newTab(url: string): Promise<StatusResult> {
-    await this.launch(url);
+  async newTab(url: string, by?: string): Promise<StatusResult> {
+    await this.launch(url, by);
     return this.status();
   }
 
@@ -333,11 +347,13 @@ export class BrowserBridge implements vscode.Disposable {
     return this.status();
   }
 
-  async listTabs(): Promise<TabsResult> {
+  async listTabs(by?: string): Promise<TabsResult> {
     const tabs: TabInfo[] = [];
     for (const tab of this.tabs.values()) {
       if (!tab.dialog) await this.refreshInfo(tab).catch(() => {});
-      tabs.push({ id: tab.id, url: tab.url, title: tab.title, active: tab.id === this.activeId });
+      const info: TabInfo = { id: tab.id, url: tab.url, title: tab.title, active: tab.id === this.activeId };
+      if (by && tab.openedBy === by) info.openedByYou = true;
+      tabs.push(info);
     }
     return { tabs, otherBrowserTabs: Math.max(0, browserTabCount() - tabs.length) };
   }
@@ -351,16 +367,26 @@ export class BrowserBridge implements vscode.Disposable {
     return this.status();
   }
 
-  async closeTab(id?: string): Promise<TabsResult> {
+  /** Close a tab the agent `by` opened. A tab the user shared stays open: it is only no longer shared. */
+  async closeTab(id?: string, by?: string): Promise<TabsResult> {
     const tab = id ? this.tabs.get(id) : this.activeTab;
     if (!tab) throw new Error(id ? `No shared tab "${id}".` : 'No browser tab is shared.');
     const title = tab.title;
-    const editorTab = this.findEditorTab(tab);
+    const theirs = by !== undefined && tab.openedBy !== by;
+    const editorTab = theirs ? undefined : this.findEditorTab(tab);
     this.removeTab(tab.id);
     await Promise.race([vscode.debug.stopDebugging(tab.rootSession), delay(1500)]).catch(() => {});
+    if (theirs) return { ...(await this.listTabs(by)), keptOpen: { id: tab.id, title } };
     if (editorTab) await vscode.window.tabGroups.close(editorTab).then(undefined, () => {});
     else await closeEditorTab(title);
-    return this.listTabs();
+    return this.listTabs(by);
+  }
+
+  /** Close every tab the agent `by` opened, e.g. when it disconnects. */
+  async closeTabsOpenedBy(by: string) {
+    for (const tab of [...this.tabs.values()]) {
+      if (tab.openedBy === by) await this.closeTab(tab.id, by).catch(() => {});
+    }
   }
 
   snapshot(): Promise<SnapshotResult> {
@@ -441,12 +467,22 @@ export class BrowserBridge implements vscode.Disposable {
       await this.glide(tab, { x: box.x + Math.min(box.width / 2, 24), y: box.y + box.height / 2 });
       if (clear) await this.pressKey(tab, 'Backspace');
       await tab.send('Input.insertText', { text: p.text });
-      if (p.submit) await this.pressKey(tab, 'Enter');
+      if (!p.submit) return;
+      // Let the page take in the text first: frameworks and debounced inputs read it on a later frame.
+      await this.evaluateOnce(tab, invoke(nextFrame, 200)).catch(() => {});
+      await delay(ENTER_AFTER_TYPING_MS);
+      const watch = this.frameOf(tab, p.ref) ? undefined : await this.watch(tab, 'Enter');
+      await this.pressKey(tab, 'Enter');
+      return watch;
     });
   }
 
   press(p: ActionOptions & { key: string }) {
-    return this.act(p, tab => this.pressKey(tab, p.key));
+    return this.act(p, async tab => {
+      const watch = /(^|\+)Enter$/i.test(p.key) ? await this.watch(tab, p.key) : undefined;
+      await this.pressKey(tab, p.key);
+      return watch;
+    });
   }
 
   select(p: ActionOptions & { ref: string; values: string[] }) {
@@ -690,8 +726,10 @@ export class BrowserBridge implements vscode.Disposable {
     return tab;
   }
 
-  private launch(url: string) {
-    return this.connect({ type: 'editor-browser', request: 'launch', url }).then(tab => this.waitForLoad(tab));
+  private async launch(url: string, by?: string) {
+    const tab = await this.connect({ type: 'editor-browser', request: 'launch', url });
+    tab.openedBy = by;
+    await this.waitForLoad(tab);
   }
 
   /** Attach to an already-open tab showing `url`, e.g. one VS Code restored after a window reload. */
@@ -774,26 +812,56 @@ export class BrowserBridge implements vscode.Disposable {
   }
 
   /** Run an input action, then report the page. If the action opens a JS dialog, return right away. */
-  private async act(opts: ActionOptions, fn: (tab: BrowserTab) => Promise<void>): Promise<ActionResult> {
+  private async act(opts: ActionOptions, fn: (tab: BrowserTab) => Promise<PageWatch | void>): Promise<ActionResult> {
     const tab = this.requireTab();
     await this.reveal(tab);
     let sub: vscode.Disposable | undefined;
     const dialogOpened = new Promise<'dialog'>(resolve => {
       sub = tab.onDialog(() => resolve('dialog'));
     });
+    let unchangedAfter: string | undefined;
     try {
-      const done = fn(tab).then(() => 'done' as const);
+      const done = fn(tab);
       const winner = await Promise.race([done, dialogOpened]);
       if (winner === 'dialog') done.catch(() => {});
       else {
         await this.evaluateOnce(tab, invoke(nextFrame, 200)).catch(() => {});
         await delay(100);
         await this.waitForLoad(tab, 5_000);
+        if (winner && !(await this.changedSince(tab, winner))) unchangedAfter = winner.key;
       }
     } finally {
       sub?.dispose();
     }
-    return this.result(tab, opts);
+    const res = await this.result(tab, opts);
+    if (unchangedAfter && !res.dialog) res.unchangedAfter = unchangedAfter;
+    return res;
+  }
+
+  /** Start watching the page for changes, to tell the agent when pressing `key` did nothing. */
+  private async watch(tab: BrowserTab, key: string): Promise<PageWatch | undefined> {
+    const url = await this.evaluateOnce<string | null>(tab, invoke(watchChanges)).catch(() => null);
+    return url ? { key, url } : undefined;
+  }
+
+  /** Whether the page navigated or changed since `watch`, waiting a little for slow responses. */
+  private async changedSince(tab: BrowserTab, watch: PageWatch): Promise<boolean> {
+    const deadline = Date.now() + UNCHANGED_WAIT_MS;
+    for (;;) {
+      if (tab.dialog) return true;
+      const last = Date.now() >= deadline;
+      const seen = await this.evaluateOnce<{ url: string; changes: number }>(
+        tab,
+        `({ url: location.href, changes: (${changesSeen.toString()})(${last}) })`,
+      ).catch(() => undefined);
+      // An evaluation that fails mid-navigation means the page is changing.
+      if (!seen || seen.url !== watch.url || seen.changes !== 0) {
+        if (!last) await this.evaluateOnce(tab, invoke(changesSeen, true)).catch(() => {});
+        return true;
+      }
+      if (last) return false;
+      await delay(150);
+    }
   }
 
   private async result(tab: BrowserTab, opts: ActionOptions): Promise<ActionResult> {

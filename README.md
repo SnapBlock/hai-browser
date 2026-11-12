@@ -144,7 +144,7 @@ Run **H/Ai: Replay Agent Run** (or click **Replay** in the status bar) and pick 
 | `browser_screenshot` | Viewport (in CSS pixels, so `x`/`y` work with click), full page, or one element. `annotate: true` labels every ref on the image |
 | `browser_console` | Console messages and uncaught errors, incrementally via `since` |
 | `browser_network` | Requests with method, status, type, duration and size, incrementally via `since` |
-| `browser_tabs`, `browser_tab_new`, `browser_tab_select`, `browser_tab_close` | Work with several shared tabs; actions go to the active one |
+| `browser_tabs`, `browser_tab_new`, `browser_tab_select`, `browser_tab_close` | Work with several shared tabs; actions go to the active one. Closing a tab you shared only stops sharing it |
 | `browser_evaluate` | Run JavaScript in the page. **Off by default**; enable `haiBrowser.allowEvaluate` |
 | `browser_get_selection` | The element you picked: source `file:line:col`, selector, text, HTML, key styles, a ref, and a screenshot. `wait: true` asks you to pick one now (waits up to 5 minutes) |
 
@@ -177,6 +177,7 @@ Tabs are the ones shared with agents (opened by `browser_open`/`browser_tab_new`
 - Arbitrary JavaScript (`browser_evaluate`) is disabled unless you turn it on.
 - Page content is untrusted: a web page can contain text written to manipulate an agent (prompt injection). Share tabs you trust, and prefer a separate profile for anything sensitive.
 - Before a risky action on a website, H/Ai asks you: typing into a password, API key, code or card field; submitting a form; typing (or putting in an address) text the agent read on a different site; or acting on a page with text that looks like orders for an AI. Choose **Allow once**, **Allow on this site** (no more questions there until the agent disconnects) or **Stop**. Reading and browsing never ask, and neither do pages on `localhost`. Turn it off with `haiBrowser.confirmActions`.
+- When an agent disconnects (for example, its Claude Code session ends), H/Ai closes the browser tabs it opened. Tabs you shared stay open. Turn it off with `haiBrowser.closeAgentTabs`.
 - When an agent signs up for things or reads codes from email, give it a throwaway inbox (the demos use Poof), not your own.
 - The status bar shows **H/Ai: sharing** whenever a tab is shared; click it to stop.
 

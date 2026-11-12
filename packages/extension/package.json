@@ -39,6 +39,11 @@
           "default": false,
           "markdownDescription": "Allow agents to run arbitrary JavaScript in the shared page (`browser_evaluate`)."
         },
+        "haiBrowser.closeAgentTabs": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When an agent disconnects (for example, its Claude Code session ends), close the browser tabs it opened. Tabs you shared with it stay open."
+        },
         "haiBrowser.confirmActions": {
           "type": "boolean",
           "default": true,
