@@ -108,6 +108,8 @@ export interface ActionResult {
   dialog?: DialogInfo;
   /** What was highlighted for the user, by `show` or when `waitFor` found its text. */
   shown?: ShownText;
+  /** Set when pressing this key (e.g. Enter) changed neither the URL nor the page. */
+  unchangedAfter?: string;
 }
 
 export interface ShownText {
@@ -173,6 +175,8 @@ export interface TabInfo {
   url: string;
   title: string;
   active: boolean;
+  /** This agent opened the tab (rather than the user sharing one of theirs). */
+  openedByYou?: boolean;
 }
 
 export interface TabsResult {
@@ -180,6 +184,8 @@ export interface TabsResult {
   tabs: TabInfo[];
   /** Other integrated-browser tabs open in VS Code that are not shared. */
   otherBrowserTabs: number;
+  /** A tab the user shared that `tabClose` stopped sharing instead of closing. */
+  keptOpen?: { id: string; title: string };
 }
 
 export interface SourceLocation {

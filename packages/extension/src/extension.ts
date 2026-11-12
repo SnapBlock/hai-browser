@@ -28,6 +28,7 @@ export async function activate(context: vscode.ExtensionContext) {
     connection => {
       recorder.endConnection(connection);
       guard.end(connection);
+      if (vscode.workspace.getConfiguration('haiBrowser').get<boolean>('closeAgentTabs', true)) void bridge.closeTabsOpenedBy(connection);
     },
   );
 
@@ -146,7 +147,7 @@ async function guarded(bridge: BrowserBridge, guard: ActionGuard, req: AgentRequ
     const risk = guard.check(connection, { method: req.method, params, url: bridge.pageInfo()?.url, target });
     if (risk) await confirm(risk, guard, connection, req.client?.name);
   }
-  const result = (await dispatch(bridge, req)) as { url?: string; tree?: unknown; snapshot?: unknown } | undefined;
+  const result = (await dispatch(bridge, req, connection)) as { url?: string; tree?: unknown; snapshot?: unknown } | undefined;
   const read = typeof result?.tree === 'string' ? result.tree : typeof result?.snapshot === 'string' ? result.snapshot : undefined;
   if (read) guard.noteRead(connection, result?.url, read);
   return result;
@@ -171,7 +172,7 @@ async function confirm(risk: Risk, guard: ActionGuard, connection: string, clien
   }
 }
 
-async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unknown> {
+async function dispatch(bridge: BrowserBridge, req: AgentRequest, connection: string): Promise<unknown> {
   const p = req.params as any;
   const opts = { snapshot: p.snapshot, screenshot: p.screenshot };
   switch (req.method as keyof AgentMethods) {
@@ -180,7 +181,7 @@ async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unkno
     case 'share':
       return bridge.share();
     case 'open':
-      return bridge.open(requireString(p.url, 'url'));
+      return bridge.open(requireString(p.url, 'url'), connection);
     case 'navigate':
       return bridge.navigate(p);
     case 'snapshot':
@@ -239,13 +240,13 @@ async function dispatch(bridge: BrowserBridge, req: AgentRequest): Promise<unkno
     case 'selection':
       return { selection: bridge.lastSelection };
     case 'tabs':
-      return bridge.listTabs();
+      return bridge.listTabs(connection);
     case 'tabNew':
-      return bridge.newTab(requireString(p.url, 'url'));
+      return bridge.newTab(requireString(p.url, 'url'), connection);
     case 'tabSelect':
       return bridge.selectTab(requireString(p.id, 'id'));
     case 'tabClose':
-      return bridge.closeTab(typeof p.id === 'string' ? p.id : undefined);
+      return bridge.closeTab(typeof p.id === 'string' ? p.id : undefined, connection);
     default:
       throw new Error(`Unknown method: ${req.method}`);
   }

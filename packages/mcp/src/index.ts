@@ -14,6 +14,8 @@ const INSTRUCTIONS = [
   'Use these tools (not WebFetch, curl, or other browser tools) whenever the user asks to open, visit, look at, click through, test, fill in, screenshot, or debug a web page or a local dev server, or mentions "the browser" or "the page".',
   'Start with browser_open (or browser_tabs to see what is already open), then browser_snapshot to read the page and act on its refs.',
   'The user cannot see what you read from snapshots: before you use something you read on the page (a verification code, a link, a price, an error), call browser_show on it so they can see it.',
+  'To open a URL, use browser_open, browser_navigate or browser_tab_new; never type a URL into a search box on the page.',
+  'When you are done with a tab you opened, close it with browser_tab_close, unless the user wants to keep looking at it.',
   'Some actions on websites (typing secrets, submitting, sending text read on one site to another) wait for the user to allow them. If the user stops one, do not retry it or work around it: say what you were about to do and ask.',
   UNTRUSTED,
 ].join(' ');
@@ -44,6 +46,11 @@ const image = (shot: ScreenshotResult) => ({ type: 'image' as const, data: shot.
 const action = (r: ActionResult): ToolResult => {
   const lines = [`URL: ${r.url}`, `Title: ${r.title}`, `Tab: ${r.tabId}`];
   if (r.shown) lines.push(`Showed the user${r.shown.label ? ` (${JSON.stringify(r.shown.label)})` : ''}: ${JSON.stringify(r.shown.text)}`);
+  if (r.unchangedAfter) {
+    lines.push(
+      `Pressed ${r.unchangedAfter}, but neither the URL nor the page changed: nothing it should have done (opening a page, sending a form, searching) has happened. Don't assume it worked.`,
+    );
+  }
   if (r.dialog) {
     lines.push(
       `A ${r.dialog.type} dialog is open: ${JSON.stringify(r.dialog.message)}. The page is blocked until you call browser_handle_dialog.`,
@@ -201,7 +208,7 @@ server.registerTool(
       ref: z.string(),
       text: z.string(),
       clear: z.boolean().optional().describe('Replace existing text (default true)'),
-      submit: z.boolean().optional().describe('Press Enter afterwards'),
+      submit: z.boolean().optional().describe('Press Enter afterwards (the result says if the page did not react)'),
       ...actionOptions,
     },
   },
@@ -353,7 +360,7 @@ server.registerTool(
   },
   run(async () => {
     const { tabs, otherBrowserTabs } = await conn.call('tabs', {});
-    const lines = tabs.map(t => `${t.active ? '*' : ' '} ${t.id}  ${t.title || '(untitled)'}  ${t.url}`);
+    const lines = tabs.map(t => `${t.active ? '*' : ' '} ${t.id}  ${t.title || '(untitled)'}  ${t.url}${t.openedByYou ? '  (opened by you)' : ''}`);
     if (otherBrowserTabs) lines.push(`${otherBrowserTabs} other browser tab(s) not shared; browser_request_share lets the user share one.`);
     return text(lines.join('\n') || 'No tabs shared.');
   }),
@@ -380,10 +387,17 @@ server.registerTool(
 server.registerTool(
   'browser_tab_close',
   {
-    description: 'Close a shared tab (default: the active one).',
+    description:
+      "Close a tab you opened (default: the active one) once you no longer need it. A tab the user shared with you isn't closed: you just stop sharing it.",
     inputSchema: { id: z.string().optional() },
   },
-  params => run(async () => text(await conn.call('tabClose', params)))(),
+  params =>
+    run(async () => {
+      const { keptOpen, ...rest } = await conn.call('tabClose', params);
+      const result = text(rest);
+      if (keptOpen) result.content.unshift({ type: 'text', text: `Stopped sharing ${keptOpen.id} (${keptOpen.title || 'untitled'}). The user shared it, so it stays open for them.` });
+      return result;
+    })(),
 );
 
 server.registerTool(

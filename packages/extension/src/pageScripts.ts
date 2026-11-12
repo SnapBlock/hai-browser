@@ -4,6 +4,7 @@
 declare global {
   interface Window {
     __hai?: { next: number; ids: WeakMap<Element, string>; refs: Map<string, WeakRef<Element>> };
+    __haiWatch?: { changes: number; observer: MutationObserver };
   }
 }
 
@@ -702,6 +703,42 @@ export function setCursorVisible(visible: boolean): boolean {
 }
 
 /** Resolve after two rendered frames, so mouse moves Chromium queued for the next frame have been dispatched. */
+/**
+ * Start counting changes to the page, ignoring H/Ai's own overlay. Returns the URL, or null when the
+ * focus is inside a frame, whose changes this document can't see.
+ */
+export function watchChanges(): string | null {
+  window.__haiWatch?.observer.disconnect();
+  window.__haiWatch = undefined;
+  if (document.activeElement?.tagName === 'IFRAME') return null;
+  const ours = (n: Node) => (n instanceof Element ? n : n.parentElement)?.closest('[data-hai-ui]');
+  const state = {
+    changes: 0,
+    observer: new MutationObserver(records => {
+      for (const r of records) {
+        if (ours(r.target)) continue;
+        const nodes = [...Array.from(r.addedNodes), ...Array.from(r.removedNodes)];
+        if (r.type === 'childList' && nodes.length && nodes.every(n => n instanceof Element && n.hasAttribute('data-hai-ui'))) continue;
+        state.changes++;
+      }
+    }),
+  };
+  state.observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  window.__haiWatch = state;
+  return location.href;
+}
+
+/** Changes counted since `watchChanges`, or -1 when this is a new document. */
+export function changesSeen(stop: boolean): number {
+  const state = window.__haiWatch;
+  if (!state) return -1;
+  if (stop) {
+    state.observer.disconnect();
+    window.__haiWatch = undefined;
+  }
+  return state.changes;
+}
+
 export function nextFrame(timeoutMs: number): Promise<boolean> {
   return new Promise(resolve => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
