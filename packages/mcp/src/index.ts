@@ -388,14 +388,14 @@ server.registerTool(
   'browser_tab_close',
   {
     description:
-      "Close a tab you opened (default: the active one) once you no longer need it. A tab the user shared with you isn't closed: you just stop sharing it.",
+      "Close a tab you opened (default: the active one) once you no longer need it. A tab the user shared with you, or has been using, isn't closed: you just stop sharing it.",
     inputSchema: { id: z.string().optional() },
   },
   params =>
     run(async () => {
       const { keptOpen, ...rest } = await conn.call('tabClose', params);
       const result = text(rest);
-      if (keptOpen) result.content.unshift({ type: 'text', text: `Stopped sharing ${keptOpen.id} (${keptOpen.title || 'untitled'}). The user shared it, so it stays open for them.` });
+      if (keptOpen) result.content.unshift({ type: 'text', text: `Stopped sharing ${keptOpen.id} (${keptOpen.title || 'untitled'}). The user shared it or has been using it, so it stays open for them.` });
       return result;
     })(),
 );

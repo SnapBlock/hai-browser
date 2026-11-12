@@ -33,7 +33,9 @@ import {
   moveCursor,
   nextFrame,
   changesSeen,
+  inputTimes,
   setCursorVisible,
+  trackInput,
   invoke,
   locateRef,
   pageHasText,
@@ -72,6 +74,8 @@ const DRAG_STEP_MS = 16;
 const ENTER_AFTER_TYPING_MS = 150;
 /** How long after Enter the page may take to react before the agent is told nothing happened. */
 const UNCHANGED_WAIT_MS = 1500;
+/** A page input event this soon after H/Ai sent input is taken to be H/Ai's, not the user's. */
+const AGENT_INPUT_MS = 1500;
 
 const debugOptions: vscode.DebugSessionOptions = {
   suppressDebugToolbar: true,
@@ -125,6 +129,11 @@ class BrowserTab implements vscode.Disposable {
   viewId?: string;
   /** The agent connection that opened this tab; unset for tabs the user shared. */
   openedBy?: string;
+  /** The address the page was at after the agent's last action. */
+  agentUrl = '';
+  /** The user picked an element in this tab. */
+  picked = false;
+  private readonly agentInputTimes: number[] = [];
   url = '';
   title = '';
 
@@ -143,7 +152,16 @@ class BrowserTab implements vscode.Disposable {
   }
 
   send<T = any>(method: string, params: object = {}): Promise<T> {
+    if (method.startsWith('Input.')) {
+      this.agentInputTimes.push(Date.now());
+      if (this.agentInputTimes.length > 500) this.agentInputTimes.shift();
+    }
     return this.cdp.send<T>(method, params);
+  }
+
+  /** Whether an input event the page saw at `time` came from H/Ai rather than the user. */
+  isAgentInput(time: number) {
+    return this.agentInputTimes.some(t => time >= t - 50 && time <= t + AGENT_INPUT_MS);
   }
 
   /** Reject if a JavaScript dialog opens first: the page (and most CDP calls) block until it is handled. */
@@ -344,6 +362,7 @@ export class BrowserBridge implements vscode.Disposable {
       throw new Error('Pass either "url" or "action".');
     }
     await this.waitForLoad(tab);
+    await this.noteAgentUrl(tab);
     return this.status();
   }
 
@@ -367,12 +386,15 @@ export class BrowserBridge implements vscode.Disposable {
     return this.status();
   }
 
-  /** Close a tab the agent `by` opened. A tab the user shared stays open: it is only no longer shared. */
+  /**
+   * Close a tab the agent `by` opened. A tab the user shared, or has used since the agent opened it,
+   * stays open: it is only no longer shared.
+   */
   async closeTab(id?: string, by?: string): Promise<TabsResult> {
     const tab = id ? this.tabs.get(id) : this.activeTab;
     if (!tab) throw new Error(id ? `No shared tab "${id}".` : 'No browser tab is shared.');
+    const theirs = by !== undefined && (tab.openedBy !== by || (await this.userUsed(tab)));
     const title = tab.title;
-    const theirs = by !== undefined && tab.openedBy !== by;
     const editorTab = theirs ? undefined : this.findEditorTab(tab);
     this.removeTab(tab.id);
     await Promise.race([vscode.debug.stopDebugging(tab.rootSession), delay(1500)]).catch(() => {});
@@ -382,11 +404,28 @@ export class BrowserBridge implements vscode.Disposable {
     return this.listTabs(by);
   }
 
-  /** Close every tab the agent `by` opened, e.g. when it disconnects. */
-  async closeTabsOpenedBy(by: string) {
+  /** Close every tab the agent `by` opened, e.g. when it disconnects. Returns the titles of those kept open. */
+  async closeTabsOpenedBy(by: string): Promise<string[]> {
+    const kept: string[] = [];
     for (const tab of [...this.tabs.values()]) {
-      if (tab.openedBy === by) await this.closeTab(tab.id, by).catch(() => {});
+      if (tab.openedBy !== by) continue;
+      const res = await this.closeTab(tab.id, by).catch(() => undefined);
+      if (res?.keptOpen) kept.push(res.keptOpen.title);
     }
+    return kept;
+  }
+
+  /** Whether the user clicked, typed or scrolled in the tab, went to another page, or picked an element in it. */
+  private async userUsed(tab: BrowserTab): Promise<boolean> {
+    if (tab.picked) return true;
+    if (tab.dialog) return false;
+    const page = await this.evaluateOnce<{ url: string; times: number[] }>(
+      tab,
+      `({ url: location.href, times: (${inputTimes.toString()})() })`,
+    ).catch(() => undefined);
+    if (!page) return false;
+    if (tab.agentUrl && withoutHash(page.url) !== withoutHash(tab.agentUrl)) return true;
+    return page.times.some(t => !tab.isAgentInput(t));
   }
 
   snapshot(): Promise<SnapshotResult> {
@@ -730,6 +769,7 @@ export class BrowserBridge implements vscode.Disposable {
     const tab = await this.connect({ type: 'editor-browser', request: 'launch', url });
     tab.openedBy = by;
     await this.waitForLoad(tab);
+    await this.noteAgentUrl(tab);
   }
 
   /** Attach to an already-open tab showing `url`, e.g. one VS Code restored after a window reload. */
@@ -798,6 +838,8 @@ export class BrowserBridge implements vscode.Disposable {
       if (openedEditorTabs.length === 1) tab.editorTab = openedEditorTabs[0];
       cdp.on('close', () => this.removeTab(tab.id));
       await tab.init();
+      await tab.send('Page.addScriptToEvaluateOnNewDocument', { source: invoke(trackInput) }).catch(() => {});
+      await this.evaluateOnce(tab, invoke(trackInput)).catch(() => {});
       this.tabs.set(tab.id, tab);
       this.activeId = tab.id;
       this.changeEmitter.fire(true);
@@ -835,7 +877,14 @@ export class BrowserBridge implements vscode.Disposable {
     }
     const res = await this.result(tab, opts);
     if (unchangedAfter && !res.dialog) res.unchangedAfter = unchangedAfter;
+    if (!res.dialog) tab.agentUrl = res.url;
     return res;
+  }
+
+  private async noteAgentUrl(tab: BrowserTab) {
+    if (tab.dialog) return;
+    await this.refreshInfo(tab).catch(() => {});
+    tab.agentUrl = tab.url;
   }
 
   /** Start watching the page for changes, to tell the agent when pressing `key` did nothing. */
@@ -1131,6 +1180,7 @@ export class BrowserBridge implements vscode.Disposable {
         if (s.state !== 'picked' || !s.picked) return undefined;
         const picked = await toPickedElement(s.picked);
         this.selection = picked;
+        tab.picked = true;
         this.pickEmitter.fire(picked);
         return picked;
       }
@@ -1211,6 +1261,8 @@ export class BrowserBridge implements vscode.Disposable {
     return res.result.value as T;
   }
 }
+
+const withoutHash = (url: string) => url.replace(/#.*$/, '');
 
 /** Close the integrated-browser editor tab with this title, when that identifies a single tab. */
 async function closeEditorTab(title: string) {
