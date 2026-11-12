@@ -42,7 +42,7 @@
         "haiBrowser.closeAgentTabs": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "When an agent disconnects (for example, its Claude Code session ends), close the browser tabs it opened. Tabs you shared with it stay open."
+          "markdownDescription": "When an agent disconnects (for example, its Claude Code session ends), close the browser tabs it opened. Tabs you shared with it, or clicked, typed or scrolled in, stay open."
         },
         "haiBrowser.confirmActions": {
           "type": "boolean",

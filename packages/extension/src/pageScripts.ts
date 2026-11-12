@@ -5,6 +5,7 @@ declare global {
   interface Window {
     __hai?: { next: number; ids: WeakMap<Element, string>; refs: Map<string, WeakRef<Element>> };
     __haiWatch?: { changes: number; observer: MutationObserver };
+    __haiInput?: number[];
   }
 }
 
@@ -703,6 +704,29 @@ export function setCursorVisible(visible: boolean): boolean {
 }
 
 /** Resolve after two rendered frames, so mouse moves Chromium queued for the next frame have been dispatched. */
+/** Record the times of real (trusted) clicks, key presses and scrolls in the page. Safe to run twice. */
+export function trackInput() {
+  if (window.__haiInput) return;
+  const times: number[] = [];
+  window.__haiInput = times;
+  let lastWheel = 0;
+  const note = (e: Event) => {
+    if (!e.isTrusted) return;
+    const now = Date.now();
+    if (e.type === 'wheel') {
+      if (now - lastWheel < 250) return;
+      lastWheel = now;
+    }
+    times.push(now);
+    if (times.length > 50) times.shift();
+  };
+  for (const type of ['pointerdown', 'keydown', 'wheel']) window.addEventListener(type, note, { capture: true, passive: true });
+}
+
+export function inputTimes(): number[] {
+  return window.__haiInput ?? [];
+}
+
 /**
  * Start counting changes to the page, ignoring H/Ai's own overlay. Returns the URL, or null when the
  * focus is inside a frame, whose changes this document can't see.

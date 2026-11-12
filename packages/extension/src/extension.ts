@@ -28,7 +28,12 @@ export async function activate(context: vscode.ExtensionContext) {
     connection => {
       recorder.endConnection(connection);
       guard.end(connection);
-      if (vscode.workspace.getConfiguration('haiBrowser').get<boolean>('closeAgentTabs', true)) void bridge.closeTabsOpenedBy(connection);
+      if (!vscode.workspace.getConfiguration('haiBrowser').get<boolean>('closeAgentTabs', true)) return;
+      void bridge.closeTabsOpenedBy(connection).then(kept => {
+        if (!kept.length) return;
+        const what = kept.length === 1 ? `"${kept[0] || 'its tab'}"` : `${kept.length} of its tabs`;
+        vscode.window.setStatusBarMessage(`$(browser) H/Ai: the agent finished; kept ${what} open because you used it`, 15_000);
+      });
     },
   );
 
