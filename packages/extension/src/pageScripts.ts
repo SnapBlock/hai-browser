@@ -209,7 +209,26 @@ export function locateRef(ref: string, focus: boolean, clear: boolean): ElementB
   el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior });
   if (focus && el instanceof HTMLElement) {
     el.focus();
-    if (clear && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) el.select();
+    // Select the whole text to replace it, or put the caret at the end to add to it. Focus can land inside the ref
+    // (e.g. a code editor's content element), so use what actually has focus.
+    const active = document.activeElement;
+    const target = active instanceof HTMLElement && el.contains(active) ? active : el;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+      if (clear) target.select();
+      else {
+        try {
+          target.setSelectionRange(target.value.length, target.value.length);
+        } catch {
+          // Inputs such as email and number have no caret position to set.
+        }
+      }
+    } else if (target.isContentEditable) {
+      let host = target;
+      while (host.parentElement?.isContentEditable) host = host.parentElement;
+      const sel = getSelection();
+      sel?.selectAllChildren(host);
+      if (!clear) sel?.collapseToEnd();
+    }
   }
   const r = el.getBoundingClientRect();
   return { x: r.x, y: r.y, width: r.width, height: r.height, scrollX: window.scrollX, scrollY: window.scrollY };
