@@ -33,6 +33,7 @@ import {
   moveCursor,
   nextFrame,
   changesSeen,
+  cursorOverlaps,
   inputTimes,
   setCursorVisible,
   trackInput,
@@ -658,11 +659,14 @@ export class BrowserBridge implements vscode.Disposable {
     return tab && !tab.isClosed ? { url: tab.url, title: tab.title } : undefined;
   }
 
-  /** A small viewport JPEG for the run recording, or nothing if the page can't be captured right now. */
+  /**
+   * A small viewport JPEG for the run recording, or nothing if the page can't be captured right now.
+   * It keeps the agent cursor: hiding it for every step made it flicker, and the replay should show it anyway.
+   */
   async traceShot(): Promise<ScreenshotResult | undefined> {
     const tab = this.activeId ? this.tabs.get(this.activeId) : undefined;
     if (!tab || tab.isClosed || tab.dialog) return undefined;
-    return this.capture(tab, { jpeg: true }).catch(() => undefined);
+    return this.capture(tab, { jpeg: true, keepCursor: true }).catch(() => undefined);
   }
 
   get lastSelection(): PickedElement | undefined {
@@ -1036,7 +1040,7 @@ export class BrowserBridge implements vscode.Disposable {
 
   private async capture(
     tab: BrowserTab,
-    p: { ref?: string; fullPage?: boolean; annotate?: boolean; jpeg?: boolean },
+    p: { ref?: string; fullPage?: boolean; annotate?: boolean; jpeg?: boolean; keepCursor?: boolean },
   ): Promise<ScreenshotResult> {
     const params: Record<string, unknown> = p.jpeg ? { format: 'jpeg', quality: 70 } : { format: 'png' };
     let width: number | undefined;
@@ -1044,7 +1048,9 @@ export class BrowserBridge implements vscode.Disposable {
     let snapshot: string | undefined;
     let restoreScroll = 0;
     let boxes: RefBox[] | undefined;
-    await this.evaluateOnce(tab, invoke(setCursorVisible, false)).catch(() => {});
+    let cursorHidden = false;
+    // The part of the viewport in the picture; the whole of it unless only one element is captured.
+    let region = { x: 0, y: 0, width: 1e6, height: 1e6 };
     if (p.annotate) {
       snapshot = (await this.snapshotIn(tab)).tree;
       boxes = await this.evaluateIn<RefBox[]>(tab, invoke(refBoxes));
@@ -1059,6 +1065,7 @@ export class BrowserBridge implements vscode.Disposable {
     try {
       if (p.ref && !p.annotate) {
         const box = await this.locate(tab, p.ref, false);
+        region = box;
         const z = await this.zoom(tab);
         params.clip = { x: (box.x + box.scrollX) * z, y: (box.y + box.scrollY) * z, width: box.width * z, height: box.height * z, scale: 1 };
         params.captureBeyondViewport = true;
@@ -1082,12 +1089,21 @@ export class BrowserBridge implements vscode.Disposable {
           params.clip = { x: v.scrollX * z, y: v.scrollY * z, width: v.width * z, height: v.height * z, scale: 1 / v.dpr };
         }
       }
+      // Hiding the cursor makes it blink in the live page, so only hide it when it's in the picture.
+      if (
+        !p.keepCursor &&
+        (await this.evaluateOnce<boolean>(tab, invoke(cursorOverlaps, region.x, region.y, region.width, region.height)).catch(
+          () => true,
+        ))
+      ) {
+        cursorHidden = await this.evaluateOnce(tab, invoke(setCursorVisible, false)).then(() => true, () => false);
+      }
       let { data } = await tab.guard(tab.send<{ data: string }>('Page.captureScreenshot', params));
       if (boxes?.length) data = await this.evaluateOnce<string>(tab, invoke(drawRefMarks, data, boxes)).catch(() => data);
       return { mimeType: p.jpeg ? ('image/jpeg' as 'image/png') : 'image/png', data, width: width && Math.round(width), height: height && Math.round(height), snapshot };
     } finally {
       if (restoreScroll) await this.evaluateOnce(tab, `scrollTo(0, ${restoreScroll})`).catch(() => {});
-      await this.evaluateOnce(tab, invoke(setCursorVisible, true)).catch(() => {});
+      if (cursorHidden) await this.evaluateOnce(tab, invoke(setCursorVisible, true)).catch(() => {});
     }
   }
 

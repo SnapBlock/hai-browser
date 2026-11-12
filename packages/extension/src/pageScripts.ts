@@ -696,6 +696,16 @@ export function cursorRipple(x: number, y: number): boolean {
   return true;
 }
 
+/** Whether the agent cursor, badge included, overlaps this viewport rectangle (CSS px). */
+export function cursorOverlaps(x: number, y: number, width: number, height: number): boolean {
+  const c = document.getElementById('__hai_cursor');
+  if (!c || c.style.display === 'none') return false;
+  return [c, ...Array.from(c.querySelectorAll('*'))].some(el => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.right > x && r.left < x + width && r.bottom > y && r.top < y + height;
+  });
+}
+
 export function setCursorVisible(visible: boolean): boolean {
   const c = document.getElementById('__hai_cursor');
   // display, not visibility: the face resets its own visibility with all:initial, so a hidden parent wouldn't hide it.
@@ -703,7 +713,6 @@ export function setCursorVisible(visible: boolean): boolean {
   return true;
 }
 
-/** Resolve after two rendered frames, so mouse moves Chromium queued for the next frame have been dispatched. */
 /** Record the times of real (trusted) clicks, key presses and scrolls in the page. Safe to run twice. */
 export function trackInput() {
   if (window.__haiInput) return;
@@ -763,6 +772,7 @@ export function changesSeen(stop: boolean): number {
   return state.changes;
 }
 
+/** Resolve after two rendered frames, so mouse moves Chromium queued for the next frame have been dispatched. */
 export function nextFrame(timeoutMs: number): Promise<boolean> {
   return new Promise(resolve => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
