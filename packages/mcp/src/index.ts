@@ -22,7 +22,7 @@ const INSTRUCTIONS = [
   UNTRUSTED,
 ].join(' ');
 
-const server = new McpServer({ name: 'hai-browser', version: '0.0.12' }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: 'hai-browser', version: '0.0.13' }, { instructions: INSTRUCTIONS });
 
 type ToolResult = { content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[]; isError?: boolean };
 
