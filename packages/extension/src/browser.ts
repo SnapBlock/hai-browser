@@ -40,6 +40,7 @@ import {
   trackInput,
   invoke,
   locateRef,
+  type Caret,
   pageHasText,
   pollPicker,
   refBoxes,
@@ -501,12 +502,12 @@ export class BrowserBridge implements vscode.Disposable {
     });
   }
 
-  type(p: ActionOptions & { ref: string; text: string; clear?: boolean; submit?: boolean }) {
-    const clear = p.clear ?? true;
+  type(p: ActionOptions & { ref: string; text: string; clear?: boolean; selection?: boolean; submit?: boolean }) {
+    const caret: Caret = p.selection ? 'selection' : (p.clear ?? true) ? 'all' : 'end';
     return this.act(p, async tab => {
-      const box = await this.locate(tab, p.ref, true, clear);
-      await this.glide(tab, { x: box.x + Math.min(box.width / 2, 24), y: box.y + box.height / 2 });
-      if (clear) await this.pressKey(tab, 'Backspace');
+      const box = await this.locate(tab, p.ref, true, caret);
+      if (caret !== 'selection') await this.glide(tab, { x: box.x + Math.min(box.width / 2, 24), y: box.y + box.height / 2 });
+      if (caret === 'all') await this.pressKey(tab, 'Backspace');
       await tab.send('Input.insertText', { text: p.text });
       if (!p.submit) return;
       // Let the page take in the text first: frameworks and debounced inputs read it on a later frame.
@@ -1220,9 +1221,9 @@ export class BrowserBridge implements vscode.Disposable {
     }
   }
 
-  private async locate(tab: BrowserTab, ref: string, focus: boolean, clear = false): Promise<ElementBox> {
+  private async locate(tab: BrowserTab, ref: string, focus: boolean, caret: Caret = 'end'): Promise<ElementBox> {
     const frame = this.frameOf(tab, ref);
-    const box = await this.evaluateAt<ElementBox | { error: string }>(tab, frame, invoke(locateRef, ref, focus, clear));
+    const box = await this.evaluateAt<ElementBox | { error: string }>(tab, frame, invoke(locateRef, ref, focus, caret));
     if ('error' in box) throw new Error(box.error);
     if (frame) {
       const o = await this.offsetOf(tab, frame.name);

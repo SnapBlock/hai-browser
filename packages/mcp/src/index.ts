@@ -15,6 +15,7 @@ const INSTRUCTIONS = [
   'Start with browser_open (or browser_tabs to see what is already open), then browser_snapshot to read the page and act on its refs.',
   'The user cannot see what you read from snapshots: before you use something you read on the page (a verification code, a link, a price, an error), call browser_show on it so they can see it.',
   'The user watches the page, so keep it calm: read long pages with browser_snapshot and browser_scroll, and screenshot the viewport or one element. Only take a fullPage screenshot when the user asks for one; it makes the page jump.',
+  'Enter text with one browser_type call, not key by key with browser_press_key. To change part of a field, double-click the word (or select it) and call browser_type with selection: true.',
   'To open a URL, use browser_open, browser_navigate or browser_tab_new; never type a URL into a search box on the page.',
   'When you are done with a tab you opened, close it with browser_tab_close, unless the user wants to keep looking at it.',
   'Some actions on websites (typing secrets, submitting, sending text read on one site to another) wait for the user to allow them. If the user stops one, do not retry it or work around it: say what you were about to do and ask.',
@@ -204,11 +205,15 @@ server.registerTool(
 server.registerTool(
   'browser_type',
   {
-    description: `Focus an element from the snapshot and type text into it. ${AFTER}`,
+    description: `Focus an element from the snapshot and type text into it. All the text goes in at once, as if pasted. ${AFTER}`,
     inputSchema: {
       ref: z.string(),
       text: z.string(),
       clear: z.boolean().optional().describe('Replace existing text (default true)'),
+      selection: z
+        .boolean()
+        .optional()
+        .describe('Type over the text selected in the field (e.g. a word you double-clicked), or at its caret, instead of replacing it all'),
       submit: z.boolean().optional().describe('Press Enter afterwards (the result says if the page did not react)'),
       ...actionOptions,
     },
@@ -219,7 +224,7 @@ server.registerTool(
 server.registerTool(
   'browser_press_key',
   {
-    description: `Press a key or shortcut in the page: Enter, Escape, Tab, ArrowDown, a character, or a chord such as Control+A or Shift+Tab. ${AFTER}`,
+    description: `Press a key or shortcut in the page: Enter, Escape, Tab, ArrowDown, a character, or a chord such as Control+A or Shift+Tab. To enter text, use browser_type instead: pressing it key by key looks robotic to the user. ${AFTER}`,
     inputSchema: { key: z.string(), ...actionOptions },
   },
   params => run(async () => action(await conn.call('press', params)))(),

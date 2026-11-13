@@ -203,11 +203,17 @@ export interface ElementBox {
   scrollY: number;
 }
 
-export function locateRef(ref: string, focus: boolean, clear: boolean): ElementBox | { error: string } {
+/** Where typed text goes: over the whole text, after it, or over what is already selected in the field. */
+export type Caret = 'all' | 'end' | 'selection';
+
+export function locateRef(ref: string, focus: boolean, caret: Caret = 'end'): ElementBox | { error: string } {
   const el = window.__hai?.refs.get(ref)?.deref();
   if (!el || !el.isConnected) return { error: `Unknown or stale ref "${ref}". Take a new snapshot.` };
   el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior });
-  if (focus && el instanceof HTMLElement) {
+  // Keep a selection the agent made in the field, e.g. by double-clicking a word.
+  const keep = caret === 'selection' && el.contains(document.activeElement);
+  if (focus && el instanceof HTMLElement && !keep) {
+    const clear = caret === 'all';
     el.focus();
     // Select the whole text to replace it, or put the caret at the end to add to it. Focus can land inside the ref
     // (e.g. a code editor's content element), so use what actually has focus.

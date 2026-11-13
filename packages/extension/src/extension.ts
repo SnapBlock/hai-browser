@@ -200,7 +200,7 @@ async function dispatch(bridge: BrowserBridge, req: AgentRequest, connection: st
     case 'drag':
       return bridge.drag({ ...opts, from: target(p.from ?? {}), to: target(p.to ?? {}) });
     case 'type':
-      return bridge.type({ ...opts, ref: requireString(p.ref, 'ref'), text: String(p.text ?? ''), clear: p.clear, submit: p.submit });
+      return bridge.type({ ...opts, ref: requireString(p.ref, 'ref'), text: String(p.text ?? ''), clear: p.clear, selection: p.selection, submit: p.submit });
     case 'press':
       return bridge.press({ ...opts, key: requireString(p.key, 'key') });
     case 'select':

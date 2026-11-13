@@ -19,7 +19,7 @@ export interface AgentMethods {
   scroll: { params: PointTarget & ActionOptions & { deltaX?: number; deltaY?: number }; result: ActionResult };
   drag: { params: ActionOptions & { from: PointTarget; to: PointTarget }; result: ActionResult };
   type: {
-    params: ActionOptions & { ref: string; text: string; clear?: boolean; submit?: boolean };
+    params: ActionOptions & { ref: string; text: string; clear?: boolean; selection?: boolean; submit?: boolean };
     result: ActionResult;
   };
   press: { params: ActionOptions & { key: string }; result: ActionResult };
