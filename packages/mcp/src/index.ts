@@ -14,6 +14,7 @@ const INSTRUCTIONS = [
   'Use these tools (not WebFetch, curl, or other browser tools) whenever the user asks to open, visit, look at, click through, test, fill in, screenshot, or debug a web page or a local dev server, or mentions "the browser" or "the page".',
   'Start with browser_open (or browser_tabs to see what is already open), then browser_snapshot to read the page and act on its refs.',
   'The user cannot see what you read from snapshots: before you use something you read on the page (a verification code, a link, a price, an error), call browser_show on it so they can see it.',
+  'The user watches the page, so keep it calm: read long pages with browser_snapshot and browser_scroll, and screenshot the viewport or one element. Only take a fullPage screenshot when the user asks for one; it makes the page jump.',
   'Enter text with one browser_type call, not key by key with browser_press_key. To change part of a field, double-click the word (or select it) and call browser_type with selection: true.',
   'To open a URL, use browser_open, browser_navigate or browser_tab_new; never type a URL into a search box on the page.',
   'When you are done with a tab you opened, close it with browser_tab_close, unless the user wants to keep looking at it.',
@@ -301,7 +302,10 @@ server.registerTool(
       'Set annotate=true to draw every snapshot ref (e.g. "e12") on the elements it belongs to; the matching snapshot is returned too.',
     inputSchema: {
       ref: z.string().optional().describe('Element ref to capture'),
-      fullPage: z.boolean().optional(),
+      fullPage: z
+        .boolean()
+        .optional()
+        .describe('Capture the whole page. It visibly resizes and scrolls the live page, so only use it when the user asks for it'),
       annotate: z.boolean().optional().describe('Label interactive elements with their refs (viewport only)'),
     },
   },
