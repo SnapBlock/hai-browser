@@ -28,6 +28,7 @@ import {
   cursorRipple,
   describeRef,
   drawRefMarks,
+  resizeImage,
   frameOffset,
   highlightBox,
   moveCursor,
@@ -1049,6 +1050,7 @@ export class BrowserBridge implements vscode.Disposable {
     let restoreScroll = 0;
     let boxes: RefBox[] | undefined;
     let cursorHidden = false;
+    let shrinkTo: { width: number; height: number; dpr: number } | undefined;
     // The part of the viewport in the picture; the whole of it unless only one element is captured.
     let region = { x: 0, y: 0, width: 1e6, height: 1e6 };
     if (p.annotate) {
@@ -1068,7 +1070,9 @@ export class BrowserBridge implements vscode.Disposable {
         region = box;
         const z = await this.zoom(tab);
         params.clip = { x: (box.x + box.scrollX) * z, y: (box.y + box.scrollY) * z, width: box.width * z, height: box.height * z, scale: 1 };
-        params.captureBeyondViewport = true;
+        // Capturing beyond the viewport resizes the live page for a moment, so only do it for elements that don't fit.
+        const v = await this.viewport(tab);
+        params.captureBeyondViewport = box.x < 0 || box.y < 0 || box.x + box.width > v.width || box.y + box.height > v.height;
         ({ width, height } = box);
       } else if (p.fullPage && !p.annotate) {
         params.captureBeyondViewport = true;
@@ -1084,10 +1088,10 @@ export class BrowserBridge implements vscode.Disposable {
         const v = await this.viewport(tab);
         ({ width, height } = v);
         const z = await this.zoom(tab);
-        // Keep the image in CSS pixels so its coordinates can be passed straight to click/hover.
-        if (v.dpr !== 1 || z !== 1) {
-          params.clip = { x: v.scrollX * z, y: v.scrollY * z, width: v.width * z, height: v.height * z, scale: 1 / v.dpr };
-        }
+        // Keep the image in CSS pixels so its coordinates can be passed straight to click/hover. A clip scale other
+        // than 1 makes Chromium shrink the live page while it captures (a flicker on HiDPI screens), so scale after.
+        if (v.dpr !== 1 || z !== 1) params.clip = { x: v.scrollX * z, y: v.scrollY * z, width: v.width * z, height: v.height * z, scale: 1 };
+        if (v.dpr !== 1) shrinkTo = { width: v.width, height: v.height, dpr: v.dpr };
       }
       // Hiding the cursor makes it blink in the live page, so only hide it when it's in the picture.
       if (
@@ -1099,6 +1103,16 @@ export class BrowserBridge implements vscode.Disposable {
         cursorHidden = await this.evaluateOnce(tab, invoke(setCursorVisible, false)).then(() => true, () => false);
       }
       let { data } = await tab.guard(tab.send<{ data: string }>('Page.captureScreenshot', params));
+      const mime = p.jpeg ? 'image/jpeg' : 'image/png';
+      if (shrinkTo) {
+        const { width: w, height: h, dpr } = shrinkTo;
+        data = await this.evaluateOnce<string>(tab, invoke(resizeImage, data, mime, Math.round(w), Math.round(h))).catch(() =>
+          // The page can't decode images (e.g. a strict CSP), so let Chromium scale it, flicker and all.
+          tab
+            .guard(tab.send<{ data: string }>('Page.captureScreenshot', { ...params, clip: { ...(params.clip as object), scale: 1 / dpr } }))
+            .then(r => r.data),
+        );
+      }
       if (boxes?.length) data = await this.evaluateOnce<string>(tab, invoke(drawRefMarks, data, boxes)).catch(() => data);
       return { mimeType: p.jpeg ? ('image/jpeg' as 'image/png') : 'image/png', data, width: width && Math.round(width), height: height && Math.round(height), snapshot };
     } finally {

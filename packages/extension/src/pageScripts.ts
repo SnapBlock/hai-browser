@@ -473,6 +473,23 @@ export function refBoxes(): RefBox[] {
   return boxes;
 }
 
+/** Scale a base64 screenshot to width x height off screen. Chromium's own scaling resizes the live page for a moment. */
+export async function resizeImage(data: string, mime: string, width: number, height: number): Promise<string> {
+  const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: mime }), {
+    resizeWidth: width,
+    resizeHeight: height,
+    resizeQuality: 'high',
+  });
+  const canvas = new OffscreenCanvas(width, height);
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
+  const blob = await canvas.convertToBlob(mime === 'image/jpeg' ? { type: mime, quality: 0.7 } : { type: mime });
+  const out = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 /**
  * Draw ref boxes onto a viewport screenshot (base64 PNG) off screen, so nothing flashes in the live page.
  * Boxes are in CSS pixels; the image may be scaled.
